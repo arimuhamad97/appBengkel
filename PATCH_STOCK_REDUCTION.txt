@@ -1,0 +1,33 @@
+// INSTRUKSI: Tambahkan kode ini di ServicePage.jsx
+
+// Di dalam fungsi handleCreateOrUpdateQueue, SEBELUM if (editingQueueId), tambahkan:
+
+try {
+    // Reduce stock for parts before saving
+    if (formData.items && formData.items.length > 0) {
+        const partsToReduce = formData.items
+            .filter(item => item.type === 'Part')
+            .map(item => ({
+                id: item.id,
+                quantity: item.q
+            }));
+
+        if (partsToReduce.length > 0) {
+            try {
+                await api.reduceInventoryStock(partsToReduce);
+            } catch (stockError) {
+                alert('Peringatan: Beberapa part mungkin stok tidak cukup.\n' + (stockError.message || 'Silakan cek stok gudang.'));
+                // Continue anyway - let user decide
+            }
+        }
+    }
+
+    // ... sisanya tetap sama (if editingQueueId dst)
+
+} catch (error) {
+    console.error('Error creating/updating queue:', error);
+    alert('Gagal menyimpan data: ' + error.message);
+}
+
+// ATAU ganti alert sukses di baris 126 menjadi:
+alert(`Antrian Berhasil Dibuat!\nNomor Antrian: #${newQueueNumber}\n\nStok part telah dikurangi otomatis.`);

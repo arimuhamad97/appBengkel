@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+server/database.db
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Build output
+dist/
+build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+
+# Python cache (from scraper scripts)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Scraped data (optional - uncomment if you don't want to commit)
+# server/honda_parts.json
+# server/scraped_*.json
+
+# User-specific files
+server/uploads/
+server/backups/
+
+# Test files (optional)
+*.test.js
+coverage/

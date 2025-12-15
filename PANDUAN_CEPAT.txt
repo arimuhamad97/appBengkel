@@ -1,0 +1,42 @@
+# APLIKASI BENGKEL MOTOR - MUTIARA
+## Panduan Cepat Penggunaan
+
+### 🚀 CARA MENJALANKAN APLIKASI
+
+1. **Double-click** shortcut "Bengkel Motor - Mutiara" di Desktop
+2. Tunggu hingga muncul 2 jendela terminal (Backend & Frontend)
+3. Buka browser dan ketik: **http://localhost:5173**
+
+### 📱 AKSES DARI KOMPUTER/HP LAIN (LAN)
+
+Dari perangkat lain yang terhubung ke WiFi yang sama:
+- Buka browser
+- Ketik: **http://10.153.235.45:5173**
+
+### ⚠️ PENTING!
+
+- **JANGAN TUTUP** kedua jendela terminal yang muncul
+- Anda boleh **minimize** (perkecil) jendela tersebut
+- Jika ditutup, aplikasi akan berhenti
+
+### 🛑 CARA MENGHENTIKAN APLIKASI
+
+Tutup kedua jendela terminal:
+1. Jendela "Bengkel Backend"
+2. Jendela "Bengkel Frontend"
+
+### 👤 LOGIN
+
+**Username:** admin
+**Password:** mutiara06844
+
+### 📞 BANTUAN
+
+Jika ada masalah:
+1. Tutup semua jendela terminal
+2. Tunggu 5 detik
+3. Jalankan aplikasi lagi dengan double-click shortcut
+
+---
+Lokasi File Aplikasi:
+c:\Users\mmc\.gemini\antigravity\scratch\bengkel-motor
