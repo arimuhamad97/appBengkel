@@ -71,7 +71,7 @@ export default function ReportsPage({ user, initialTab = 'revenue' }) {
                                     gap: '0.5rem',
                                     padding: '0.6rem 1rem',
                                     background: isActive ? 'var(--primary)' : 'transparent',
-                                    border: 'none',
+                                    // border: 'none', // Removed duplicate key
                                     borderRadius: 'var(--radius)',
                                     color: isActive ? 'white' : 'var(--text-muted)',
                                     fontWeight: isActive ? '600' : '500',

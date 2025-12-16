@@ -3,6 +3,7 @@ import { Plus, Package, ArrowDownLeft, ArrowUpRight, ClipboardList, Printer, Fil
 import InventoryTable from '../components/inventory/InventoryTable';
 import InventoryForm from '../components/inventory/InventoryForm';
 import StockInTable from '../components/inventory/StockInTable';
+import StockOutTable from '../components/inventory/StockOutTable';
 import StockOpnameTable from '../components/inventory/StockOpnameTable';
 import { api } from '../services/api';
 
@@ -481,58 +482,17 @@ export default function InventoryPage({ user }) {
                             </button>
                         </div>
 
-                        {stockOutItems.length === 0 ? (
-                            <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Belum ada data stok keluar.</p>
-                        ) : (
-                            <div style={{ backgroundColor: 'var(--bg-dark)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                                    <thead>
-                                        <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-hover)' }}>
-                                            <th style={{ padding: '1rem' }}>Tanggal</th>
-                                            <th style={{ padding: '1rem' }}>Type</th>
-                                            <th style={{ padding: '1rem' }}>Ref ID</th>
-                                            <th style={{ padding: '1rem' }}>Kode Part</th>
-                                            <th style={{ padding: '1rem' }}>Nama Part</th>
-                                            <th style={{ padding: '1rem', textAlign: 'center' }}>Qty</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {stockOutItems
-                                            .filter(item => {
-                                                if (startDate && item.date < startDate) return false;
-                                                if (endDate && item.date > endDate) return false;
-                                                if (filterType === 'All') return true;
-                                                if (filterType === 'Opname') return item.type === 'Opname';
-                                                if (filterType === 'Service') return item.type === 'Service';
-                                                if (filterType === 'Direct') return item.type === 'Direct';
-                                                return true;
-                                            })
-                                            .map((item, idx) => (
-                                                <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                                                    <td style={{ padding: '0.8rem 1rem' }}>{item.date && item.date.split('-').reverse().join('-')}</td>
-                                                    <td style={{ padding: '0.8rem 1rem' }}>
-                                                        <span style={{
-                                                            padding: '0.2rem 0.5rem',
-                                                            borderRadius: '4px',
-                                                            backgroundColor: item.type === 'Service' ? 'rgba(59, 130, 246, 0.1)' : item.type === 'Opname' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(234, 179, 8, 0.1)',
-                                                            color: item.type === 'Service' ? '#3b82f6' : item.type === 'Opname' ? '#ef4444' : '#eab308',
-                                                            fontSize: '0.8rem'
-                                                        }}>
-                                                            {item.type || 'Unknown'}
-                                                        </span>
-                                                    </td>
-                                                    <td style={{ padding: '0.8rem 1rem', fontFamily: 'monospace' }}>{item.reference_id || '-'}</td>
-                                                    <td style={{ padding: '0.8rem 1rem', fontFamily: 'monospace' }}>{item.code}</td>
-                                                    <td style={{ padding: '0.8rem 1rem' }}>{item.name}</td>
-                                                    <td style={{ padding: '0.8rem 1rem', textAlign: 'center', fontWeight: 'bold', color: 'var(--danger)' }}>
-                                                        -{item.qty} {item.unit}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                        <StockOutTable
+                            items={stockOutItems.filter(item => {
+                                if (startDate && item.date < startDate) return false;
+                                if (endDate && item.date > endDate) return false;
+                                if (filterType === 'All') return true;
+                                if (filterType === 'Opname') return item.type === 'Opname';
+                                if (filterType === 'Service') return item.type === 'Service';
+                                if (filterType === 'Direct') return item.type === 'Direct';
+                                return true;
+                            })}
+                        />
                     </div>
                 ) : activeTab === 'opname' ? (
                     <StockOpnameTable onRefresh={() => { fetchItems(); fetchStockIn(); fetchStockOut(); }} />

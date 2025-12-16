@@ -391,6 +391,30 @@ export const api = {
             method: 'DELETE'
         });
         return res.json();
+    },
+
+    getCustomerLastVisit: async (plate, currentId) => {
+        const query = new URLSearchParams({ plate, currentId }).toString();
+        const res = await fetch(`${getBaseUrl()}/customer-last-visit?${query}`);
+        if (!res.ok) return null;
+        return res.json();
+    },
+
+    // Settings
+    getSettings: async () => {
+        const res = await fetch(`${getBaseUrl()}/settings`);
+        if (!res.ok) throw new Error('Failed to fetch settings');
+        return res.json();
+    },
+    saveSettings: async (settings) => {
+        const res = await fetch(`${getBaseUrl()}/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to save settings');
+        return json;
     }
 };
 

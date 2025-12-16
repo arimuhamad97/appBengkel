@@ -153,7 +153,15 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
         if (!selectedServiceId) return;
         const serv = servicesList.find(s => s.id === parseInt(selectedServiceId));
         if (serv) {
-            const newItem = { type: 'Service', name: serv.name, price: serv.price, q: 1, id: serv.id, discount: 0 };
+            const newItem = {
+                type: 'Service',
+                name: serv.name,
+                price: serv.price,
+                q: 1,
+                id: serv.id,
+                discount: 0,
+                discountPercent: 0
+            };
             setItems([...items, newItem]);
             setSelectedServiceId('');
         }
@@ -162,8 +170,23 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
     const handleAddPart = () => {
         if (!selectedPartId) return;
         const part = partsList.find(p => p.id === selectedPartId);
+
         if (part) {
-            const newItem = { type: 'Part', name: part.name, price: part.price, q: 1, id: part.id, discount: 0 };
+            if (part.stock <= 0) {
+                alert(`Stok habis untuk ${part.name}!`);
+                return;
+            }
+
+            const newItem = {
+                type: 'Part',
+                name: part.name,
+                price: part.price,
+                q: 1,
+                id: part.id,
+                stock: part.stock, // Simpan info stok max
+                discount: 0,
+                discountPercent: 0
+            };
             setItems([...items, newItem]);
             setSelectedPartId('');
         }
@@ -175,20 +198,63 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
         setItems(newItems);
     };
 
-    const handleUpdateDiscount = (index, value) => {
+    const handleUpdateDiscount = (index, value, mode = 'percent') => {
         const newItems = [...items];
-        newItems[index].discount = Number(value);
+        const item = newItems[index];
+
+        if (mode === 'percent') {
+            const percent = Math.min(100, Math.max(0, Number(value)));
+            item.discountPercent = percent;
+            item.discount = Math.floor((item.price * percent) / 100);
+        } else {
+            const nominal = Number(value);
+            item.discount = nominal;
+            if (item.price > 0) {
+                // Hitung persen, max 2 desimal
+                item.discountPercent = parseFloat(((nominal / item.price) * 100).toFixed(2));
+            }
+        }
         setItems(newItems);
     };
 
     const handleUpdateQuantity = (index, value) => {
         const newItems = [...items];
-        newItems[index].q = Math.max(1, Number(value));
+        const item = newItems[index];
+        const newQty = Math.max(1, Number(value));
+
+        // Validasi Stok untuk Part
+        if (item.type === 'Part') {
+            // Cek stok asli dari daftar parts atau property stock di item
+            if (newQty > (item.stock || 0)) {
+                alert(`Stok tidak cukup! Sisa stok: ${item.stock || 0}`);
+                return;
+            }
+        }
+
+        item.q = newQty;
+        setItems(newItems);
+    };
+
+    const handleUpdatePrice = (index, value) => {
+        const price = Number(value);
+        const newItems = [...items];
+        newItems[index].price = price;
+
+        // Recalculate discount if percent exists
+        if (newItems[index].discountPercent !== undefined) {
+            newItems[index].discount = Math.floor((price * newItems[index].discountPercent) / 100);
+        }
+
         setItems(newItems);
     };
 
     const handleChange = (e) => {
-        const { name, value } = e.target;
+        let { name, value } = e.target;
+
+        // Force Uppercase for Plate Number
+        if (name === 'plateNumber') {
+            value = value.toUpperCase();
+        }
 
         // Jika user mengganti plat nomor, reset flag dan clear data kendaraan
         if (name === 'plateNumber' && value !== formData.plateNumber) {
@@ -305,6 +371,7 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
             } else {
                 // Data tidak ditemukan - tampilkan modal
                 setTempPlateNumber(plate);
+                setShowBikeDropdown(false);
                 setShowNewCustomerModal(true);
             }
         } catch (error) {
@@ -378,7 +445,15 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
     const renderItemRow = (item, idx) => (
         <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
             <td style={{ padding: '0.25rem' }}>{item.name}</td>
-            <td style={{ padding: '0.25rem', textAlign: 'right' }}>Rp {item.price.toLocaleString()}</td>
+            <td style={{ padding: '0.25rem', textAlign: 'right', width: '120px' }}>
+                <input
+                    type="number"
+                    className="input"
+                    style={{ padding: '0.1rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
+                    value={item.price}
+                    onChange={(e) => handleUpdatePrice(idx, e.target.value)}
+                />
+            </td>
             <td style={{ padding: '0.25rem', textAlign: 'center' }}>
                 <input
                     type="number"
@@ -389,15 +464,30 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                     onChange={(e) => handleUpdateQuantity(idx, e.target.value)}
                 />
             </td>
-            <td style={{ padding: '0.25rem', textAlign: 'right', width: '80px' }}>
-                <input
-                    type="number"
-                    className="input"
-                    style={{ padding: '0.1rem 0.3rem', fontSize: '0.8rem', textAlign: 'right' }}
-                    placeholder="0"
-                    value={item.discount || ''}
-                    onChange={(e) => handleUpdateDiscount(idx, e.target.value)}
-                />
+            <td style={{ padding: '0.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+                    <div style={{ position: 'relative', width: '50px' }}>
+                        <input
+                            type="number"
+                            className="input"
+                            style={{ padding: '0.2rem 14px 0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
+                            placeholder="0"
+                            min="0"
+                            max="100"
+                            value={item.discountPercent !== undefined ? item.discountPercent : ''}
+                            onChange={(e) => handleUpdateDiscount(idx, e.target.value, 'percent')}
+                        />
+                        <span style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>%</span>
+                    </div>
+                    <input
+                        type="number"
+                        className="input"
+                        style={{ padding: '0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '80px' }}
+                        placeholder="Rp"
+                        value={item.discount || ''}
+                        onChange={(e) => handleUpdateDiscount(idx, e.target.value, 'nominal')}
+                    />
+                </div>
             </td>
             <td style={{ padding: '0.25rem', textAlign: 'right', fontWeight: 'bold' }}>
                 Rp {((item.price - (item.discount || 0)) * item.q).toLocaleString()}
@@ -586,33 +676,12 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                             <FileText size={18} /> Estimasi Biaya & Jasa
                         </h3>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
                             {/* LEFT: JASA SERVIS */}
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <h4 style={{ marginBottom: '0.5rem', fontSize: '1rem', color: 'var(--text-muted)' }}>Jasa Servis</h4>
-                                <div style={{ flex: 1, backgroundColor: 'var(--bg-hover)', borderRadius: 'var(--radius)', padding: '0.5rem', marginBottom: '0.5rem', minHeight: '120px' }}>
-                                    {items.filter(i => i.type === 'Service').length === 0 ? (
-                                        <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.85rem', padding: '2rem', fontStyle: 'italic' }}>Belum ada jasa dipilih.</p>
-                                    ) : (
-                                        <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
-                                            <thead>
-                                                <tr style={{ color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                                                    <th style={{ padding: '0.5rem' }}>Item</th>
-                                                    <th style={{ padding: '0.5rem', textAlign: 'right' }}>Harga</th>
-                                                    <th style={{ padding: '0.5rem', textAlign: 'center', width: '50px' }}>Qty</th>
-                                                    <th style={{ padding: '0.5rem', textAlign: 'right', width: '70px' }}>Diskon</th>
-                                                    <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
-                                                    <th style={{ width: '30px' }}></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {items.map((item, idx) => item.type === 'Service' ? renderItemRow(item, idx) : null)}
-                                            </tbody>
-                                        </table>
-                                    )}
-                                </div>
-                                <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
+                                <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column', marginBottom: '0.5rem' }}>
                                     <div style={{ position: 'relative' }}>
                                         <input
                                             type="text"
@@ -627,21 +696,19 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                                         <select className="input" style={{ flex: 1 }} value={selectedServiceId} onChange={(e) => setSelectedServiceId(e.target.value)}>
                                             <option value="">+ Tambah Jasa</option>
-                                            {servicesList.filter(s => s.name?.toLowerCase().includes(serviceSearch.toLowerCase())).map(s => (
-                                                <option key={s.id} value={s.id}>{s.name} - Rp {s.price.toLocaleString()}</option>
-                                            ))}
+                                            {servicesList
+                                                .filter(s => s.name?.toLowerCase().includes(serviceSearch.toLowerCase()))
+                                                .slice(0, 50)
+                                                .map(s => (
+                                                    <option key={s.id} value={s.id}>{s.name} - Rp {s.price.toLocaleString()}</option>
+                                                ))}
                                         </select>
                                         <button type="button" className="btn btn-primary" onClick={handleAddService} disabled={!selectedServiceId}><Plus size={18} /></button>
                                     </div>
                                 </div>
-                            </div>
-
-                            {/* RIGHT: SPAREPARTS */}
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <h4 style={{ marginBottom: '0.5rem', fontSize: '1rem', color: 'var(--text-muted)' }}>Suku Cadang</h4>
                                 <div style={{ flex: 1, backgroundColor: 'var(--bg-hover)', borderRadius: 'var(--radius)', padding: '0.5rem', marginBottom: '0.5rem', minHeight: '120px' }}>
-                                    {items.filter(i => i.type === 'Part').length === 0 ? (
-                                        <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.85rem', padding: '2rem', fontStyle: 'italic' }}>Belum ada part dipilih.</p>
+                                    {items.filter(i => i.type === 'Service').length === 0 ? (
+                                        <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.85rem', padding: '2rem', fontStyle: 'italic' }}>Belum ada jasa dipilih.</p>
                                     ) : (
                                         <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
                                             <thead>
@@ -649,18 +716,26 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                                                     <th style={{ padding: '0.5rem' }}>Item</th>
                                                     <th style={{ padding: '0.5rem', textAlign: 'right' }}>Harga</th>
                                                     <th style={{ padding: '0.5rem', textAlign: 'center', width: '50px' }}>Qty</th>
-                                                    <th style={{ padding: '0.5rem', textAlign: 'right', width: '70px' }}>Diskon</th>
+                                                    <th style={{ padding: '0.5rem', textAlign: 'right', width: '140px' }}>Diskon (% / Rp)</th>
                                                     <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
                                                     <th style={{ width: '30px' }}></th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {items.map((item, idx) => item.type === 'Part' ? renderItemRow(item, idx) : null)}
+                                                {items.map((item, idx) => item.type === 'Service' ? renderItemRow(item, idx) : null)}
                                             </tbody>
                                         </table>
                                     )}
+                                    <div style={{ padding: '0.5rem', borderTop: '1px solid var(--border)', textAlign: 'right', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                                        Total Jasa: Rp {items.filter(i => i.type === 'Service').reduce((sum, item) => sum + ((item.price - (item.discount || 0)) * item.q), 0).toLocaleString()}
+                                    </div>
                                 </div>
-                                <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
+                            </div>
+
+                            {/* RIGHT: SPAREPARTS */}
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <h4 style={{ marginBottom: '0.5rem', fontSize: '1rem', color: 'var(--text-muted)' }}>Suku Cadang</h4>
+                                <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column', marginBottom: '0.5rem' }}>
                                     <div style={{ position: 'relative' }}>
                                         <input
                                             type="text"
@@ -675,36 +750,88 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                                         <select className="input" style={{ flex: 1 }} value={selectedPartId} onChange={(e) => setSelectedPartId(e.target.value)}>
                                             <option value="">+ Tambah Part</option>
-                                            {partsList.filter(p => p.name?.toLowerCase().includes(partSearch.toLowerCase())).map(p => (
-                                                <option key={p.id} value={p.id}>{p.name} - Rp {p.price.toLocaleString()}</option>
-                                            ))}
+                                            {partsList
+                                                .filter(p => p.name?.toLowerCase().includes(partSearch.toLowerCase()))
+                                                .slice(0, 50)
+                                                .map(p => (
+                                                    <option key={p.id} value={p.id}>
+                                                        {p.name} (S: {p.stock}) - Rp {p.price.toLocaleString()}
+                                                    </option>
+                                                ))}
                                         </select>
                                         <button type="button" className="btn btn-primary" onClick={handleAddPart} disabled={!selectedPartId}><Plus size={18} /></button>
                                     </div>
                                 </div>
+                                <div style={{ flex: 1, backgroundColor: 'var(--bg-hover)', borderRadius: 'var(--radius)', padding: '0.5rem', marginBottom: '0.5rem', minHeight: '120px' }}>
+                                    {items.filter(i => i.type === 'Part').length === 0 ? (
+                                        <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.85rem', padding: '2rem', fontStyle: 'italic' }}>Belum ada part dipilih.</p>
+                                    ) : (
+                                        <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                                            <thead>
+                                                <tr style={{ color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                                                    <th style={{ padding: '0.5rem' }}>Item</th>
+                                                    <th style={{ padding: '0.5rem', textAlign: 'right' }}>Harga</th>
+                                                    <th style={{ padding: '0.5rem', textAlign: 'center', width: '50px' }}>Qty</th>
+                                                    <th style={{ padding: '0.5rem', textAlign: 'right', width: '140px' }}>Diskon (% / Rp)</th>
+                                                    <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
+                                                    <th style={{ width: '30px' }}></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {items.map((item, idx) => item.type === 'Part' ? renderItemRow(item, idx) : null)}
+                                            </tbody>
+                                        </table>
+                                    )}
+                                    <div style={{ padding: '0.5rem', borderTop: '1px solid var(--border)', textAlign: 'right', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                                        Total Sparepart: Rp {items.filter(i => i.type === 'Part').reduce((sum, item) => sum + ((item.price - (item.discount || 0)) * item.q), 0).toLocaleString()}
+                                    </div>
+                                </div>
                             </div>
-
                         </div>
                     </div>
 
                     {/* --- FOOTER: SUMMARY & SUBMIT --- */}
-                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1.5rem', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                         <div className="input-group">
                             <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Keluhan / Catatan</label>
                             <textarea name="complaint" className="input" rows="3" value={formData.complaint} onChange={handleChange} placeholder="Deskripsikan keluhan pelanggan..."></textarea>
                         </div>
 
                         <div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                                <span style={{ color: 'var(--text-muted)' }}>Estimasi Total:</span>
-                                <span style={{ fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--primary)' }}>Rp {calculateTotal().toLocaleString()}</span>
+                            <div style={{ backgroundColor: 'var(--bg-hover)', padding: '1.25rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                                <h4 style={{ marginBottom: '1rem', fontSize: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', color: 'var(--primary)' }}>Ringkasan Biaya</h4>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                                    <span>Total Jasa</span>
+                                    <span>Rp {items.filter(i => i.type === 'Service').reduce((sum, item) => sum + (item.price * item.q), 0).toLocaleString()}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                                    <span>Total Sparepart</span>
+                                    <span>Rp {items.filter(i => i.type === 'Part').reduce((sum, item) => sum + (item.price * item.q), 0).toLocaleString()}</span>
+                                </div>
+
+                                <div style={{ borderTop: '1px dashed var(--border)', margin: '0.75rem 0' }}></div>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.95rem' }}>
+                                    <span>Subtotal</span>
+                                    <span>Rp {items.reduce((sum, item) => sum + (item.price * item.q), 0).toLocaleString()}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--danger)' }}>
+                                    <span>Diskon / Potongan</span>
+                                    <span>- Rp {items.reduce((sum, item) => sum + ((item.discount || 0) * item.q), 0).toLocaleString()}</span>
+                                </div>
+
+                                <div style={{ borderTop: '2px solid var(--border)', marginTop: '0.75rem', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>Total Estimasi</span>
+                                    <span style={{ fontSize: '1.6rem', fontWeight: 'bold', color: 'var(--primary)' }}>Rp {calculateTotal().toLocaleString()}</span>
+                                </div>
                             </div>
 
-                            <div style={{ display: 'grid', gap: '1rem' }}>
-                                <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '0.8rem' }}>
+                            <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                                <button type="submit" className="btn btn-primary" style={{ flex: 1, padding: '0.8rem' }}>
                                     <Save size={18} /> Simpan Pendaftaran
                                 </button>
-                                <button type="button" className="btn btn-outline" style={{ width: '100%' }} onClick={onCancel}>
+                                <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={onCancel}>
                                     Batal
                                 </button>
                             </div>

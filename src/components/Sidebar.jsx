@@ -14,7 +14,7 @@ export default function Sidebar({ user, onLogout, theme, toggleTheme, isOpen, on
     ];
 
     const displayMenu = (user?.role === 'gudang')
-        ? menuItems.filter(item => item.to === '/inventory')
+        ? menuItems.filter(item => ['/inventory', '/settings'].includes(item.to))
         : menuItems;
 
     return (

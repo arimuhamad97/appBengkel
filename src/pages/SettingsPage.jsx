@@ -4,9 +4,15 @@ import { mockMechanics, mockServices } from '../data/mockData';
 import { api } from '../services/api';
 import ServicesSettings from '../components/settings/ServicesSettings';
 
-export default function SettingsPage() {
-    const [activeTab, setActiveTab] = useState('workshop');
-    const [workshopName, setWorkshopName] = useState('Bengkel Motor Pro');
+export default function SettingsPage({ user }) {
+    const [activeTab, setActiveTab] = useState(user?.role === 'gudang' ? 'partTypes' : 'workshop');
+
+    // Workshop Settings State
+    const [workshopName, setWorkshopName] = useState('');
+    const [workshopAddress, setWorkshopAddress] = useState('');
+    const [workshopMotto, setWorkshopMotto] = useState('');
+    const [workshopPhone, setWorkshopPhone] = useState('');
+
     const [mechanics, setMechanics] = useState([]);
     const [services, setServices] = useState(mockServices);
 
@@ -51,8 +57,13 @@ export default function SettingsPage() {
     const [editingPartId, setEditingPartId] = useState(null);
     const [editingPartData, setEditingPartData] = useState({});
 
+    // Add part modal state
+    const [showAddPartModal, setShowAddPartModal] = useState(false);
+
     useEffect(() => {
-        if (activeTab === 'bikeTypes') {
+        if (activeTab === 'workshop') {
+            fetchSettings();
+        } else if (activeTab === 'bikeTypes') {
             fetchBikeTypes();
         } else if (activeTab === 'partTypes') {
             fetchPartTypes();
@@ -65,6 +76,20 @@ export default function SettingsPage() {
             fetchMechanics();
         }
     }, [activeTab]);
+
+    const fetchSettings = async () => {
+        try {
+            const settings = await api.getSettings();
+            if (settings) {
+                setWorkshopName(settings.workshopName || 'BENGKEL MOTOR');
+                setWorkshopAddress(settings.workshopAddress || '');
+                setWorkshopMotto(settings.workshopMotto || 'Terima kasih atas kunjungan Anda');
+                setWorkshopPhone(settings.workshopPhone || '');
+            }
+        } catch (err) {
+            console.error("Failed to fetch settings", err);
+        }
+    };
 
     const fetchBikeTypes = async () => {
         try {
@@ -210,7 +235,7 @@ export default function SettingsPage() {
             setEditingPartId(null);
             setEditingPartData({});
             fetchPartTypes();
-            alert('✅ Jenis sparepart berhasil diupdate!');
+            alert('✅ Jenis sparepart berhasil diupdate!\n\n💡 Data persediaan juga sudah diupdate otomatis. Jika halaman Persediaan sedang terbuka, silakan refresh untuk melihat perubahan.');
         } catch (err) {
             console.error("Failed to update part type", err);
             alert('❌ Gagal mengupdate jenis sparepart');
@@ -285,6 +310,21 @@ export default function SettingsPage() {
         }
     };
 
+    const handleSaveWorkshopProfile = async () => {
+        try {
+            await api.saveSettings({
+                workshopName,
+                workshopAddress,
+                workshopMotto,
+                workshopPhone
+            });
+            alert('✅ Pengaturan Bengkel Disimpan!');
+        } catch (err) {
+            console.error(err);
+            alert('❌ Gagal menyimpan pengaturan!');
+        }
+    };
+
     return (
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
@@ -295,34 +335,38 @@ export default function SettingsPage() {
             </div>
 
             <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border)', marginBottom: '2rem', flexWrap: 'wrap' }}>
-                <button
-                    className={`btn ${activeTab === 'workshop' ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
-                    onClick={() => setActiveTab('workshop')}
-                >
-                    Profil Bengkel
-                </button>
-                <button
-                    className={`btn ${activeTab === 'services' ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
-                    onClick={() => setActiveTab('services')}
-                >
-                    Daftar Jasa (Harga)
-                </button>
-                <button
-                    className={`btn ${activeTab === 'mechanics' ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
-                    onClick={() => setActiveTab('mechanics')}
-                >
-                    Karyawan
-                </button>
-                <button
-                    className={`btn ${activeTab === 'bikeTypes' ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
-                    onClick={() => setActiveTab('bikeTypes')}
-                >
-                    Type Motor
-                </button>
+                {user?.role !== 'gudang' && (
+                    <>
+                        <button
+                            className={`btn ${activeTab === 'workshop' ? 'btn-primary' : 'btn-outline'}`}
+                            style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
+                            onClick={() => setActiveTab('workshop')}
+                        >
+                            Profil Bengkel
+                        </button>
+                        <button
+                            className={`btn ${activeTab === 'services' ? 'btn-primary' : 'btn-outline'}`}
+                            style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
+                            onClick={() => setActiveTab('services')}
+                        >
+                            Daftar Jasa (Harga)
+                        </button>
+                        <button
+                            className={`btn ${activeTab === 'mechanics' ? 'btn-primary' : 'btn-outline'}`}
+                            style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
+                            onClick={() => setActiveTab('mechanics')}
+                        >
+                            Karyawan
+                        </button>
+                        <button
+                            className={`btn ${activeTab === 'bikeTypes' ? 'btn-primary' : 'btn-outline'}`}
+                            style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
+                            onClick={() => setActiveTab('bikeTypes')}
+                        >
+                            Type Motor
+                        </button>
+                    </>
+                )}
                 <button
                     className={`btn ${activeTab === 'partTypes' ? 'btn-primary' : 'btn-outline'}`}
                     style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
@@ -342,14 +386,18 @@ export default function SettingsPage() {
                                 <input type="text" className="input" value={workshopName} onChange={(e) => setWorkshopName(e.target.value)} />
                             </div>
                             <div className="input-group" style={{ marginBottom: '1rem' }}>
+                                <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Nomor Telepon / WA</label>
+                                <input type="text" className="input" value={workshopPhone} onChange={(e) => setWorkshopPhone(e.target.value)} placeholder="08123456789" />
+                            </div>
+                            <div className="input-group" style={{ marginBottom: '1rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Alamat</label>
-                                <textarea className="input" rows="3" defaultValue="Jl. Raya Otomotif No. 1, Jakarta Selatan"></textarea>
+                                <textarea className="input" rows="3" value={workshopAddress} onChange={(e) => setWorkshopAddress(e.target.value)}></textarea>
                             </div>
                             <div className="input-group" style={{ marginBottom: '1rem' }}>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Motto / Pesan Struk</label>
-                                <input type="text" className="input" defaultValue="Terima kasih telah mempercayakan kendaraan Anda pada kami." />
+                                <input type="text" className="input" value={workshopMotto} onChange={(e) => setWorkshopMotto(e.target.value)} />
                             </div>
-                            <button className="btn btn-primary" onClick={() => alert('Pengaturan Disimpan!')}>
+                            <button className="btn btn-primary" onClick={handleSaveWorkshopProfile}>
                                 <Save size={18} /> Simpan Perubahan
                             </button>
                         </div>
@@ -557,51 +605,15 @@ export default function SettingsPage() {
 
                 {activeTab === 'partTypes' && (
                     <div>
-                        <h3 style={{ marginBottom: '1.5rem' }}>Jenis Sparepart</h3>
-                        <div style={{ marginBottom: '2rem', padding: '1.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', backgroundColor: 'var(--bg-dark)' }}>
-                            <h4 style={{ marginBottom: '1rem' }}>Tambah Jenis Sparepart Baru</h4>
-                            <div style={{ display: 'grid', gap: '1rem' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr', gap: '1rem' }}>
-                                    <div className="input-group">
-                                        <label>Kode Sparepart</label>
-                                        <input type="text" className="input" placeholder="SP001" value={newPartType.code || ''} onChange={(e) => setNewPartType({ ...newPartType, code: e.target.value })} />
-                                    </div>
-                                    <div className="input-group">
-                                        <label>Nama <span style={{ color: 'var(--danger)' }}>*</span></label>
-                                        <input type="text" className="input" placeholder="Oli Mesin" value={newPartType.name || ''} onChange={(e) => setNewPartType({ ...newPartType, name: e.target.value })} />
-                                    </div>
-                                    <div className="input-group">
-                                        <label>Group</label>
-                                        <select className="input" value={newPartType.group_type || ''} onChange={(e) => setNewPartType({ ...newPartType, group_type: e.target.value })}>
-                                            <option value="">-- Pilih --</option>
-                                            <option value="HGP">HGP</option>
-                                            <option value="Oli">Oli</option>
-                                            <option value="Non HGP">Non HGP</option>
-                                        </select>
-                                    </div>
-                                    <div className="input-group">
-                                        <label>Satuan</label>
-                                        <select className="input" value={newPartType.unit || ''} onChange={(e) => setNewPartType({ ...newPartType, unit: e.target.value })}>
-                                            <option value="">-- Pilih --</option>
-                                            <option value="Set">Set</option>
-                                            <option value="Pcs">Pcs</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                    <div className="input-group">
-                                        <label>Harga Jual</label>
-                                        <input type="number" className="input" placeholder="50000" value={newPartType.sell_price || ''} onChange={(e) => setNewPartType({ ...newPartType, sell_price: e.target.value })} />
-                                    </div>
-                                    <div className="input-group">
-                                        <label>Harga Pokok</label>
-                                        <input type="number" className="input" placeholder="40000" value={newPartType.cost_price || ''} onChange={(e) => setNewPartType({ ...newPartType, cost_price: e.target.value })} />
-                                    </div>
-                                </div>
-                                <button className="btn btn-primary" onClick={handleAddPartType}>
-                                    <Plus size={18} /> Tambah
-                                </button>
-                            </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                            <h3 style={{ margin: 0 }}>Jenis Sparepart</h3>
+                            <button
+                                className="btn btn-primary"
+                                onClick={() => setShowAddPartModal(true)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                            >
+                                <Plus size={18} /> Tambah Jenis Sparepart
+                            </button>
                         </div>
 
                         {/* Search Box */}
@@ -844,6 +856,156 @@ export default function SettingsPage() {
                     </div>
                 )}
             </div>
+
+            {/* Modal: Tambah Jenis Sparepart */}
+            {showAddPartModal && (
+                <>
+                    <div
+                        style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                            zIndex: 999,
+                            backdropFilter: 'blur(4px)'
+                        }}
+                        onClick={() => setShowAddPartModal(false)}
+                    />
+                    <div style={{
+                        position: 'fixed',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        backgroundColor: 'var(--bg-card)',
+                        borderRadius: 'var(--radius)',
+                        padding: '2rem',
+                        maxWidth: '600px',
+                        width: '90%',
+                        maxHeight: '90vh',
+                        overflow: 'auto',
+                        zIndex: 1000,
+                        border: '1px solid var(--border)',
+                        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                            <h3 style={{ margin: 0 }}>Tambah Jenis Sparepart Baru</h3>
+                            <button
+                                onClick={() => setShowAddPartModal(false)}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: '0.5rem',
+                                    color: 'var(--text-muted)',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                }}
+                            >
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        <div style={{ display: 'grid', gap: '1rem' }}>
+                            <div className="input-group">
+                                <label>Kode Sparepart</label>
+                                <input
+                                    type="text"
+                                    className="input"
+                                    placeholder="SP001"
+                                    value={newPartType.code || ''}
+                                    onChange={(e) => setNewPartType({ ...newPartType, code: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="input-group">
+                                <label>Nama Sparepart <span style={{ color: 'var(--danger)' }}>*</span></label>
+                                <input
+                                    type="text"
+                                    className="input"
+                                    placeholder="Oli Mesin AHM"
+                                    value={newPartType.name || ''}
+                                    onChange={(e) => setNewPartType({ ...newPartType, name: e.target.value })}
+                                />
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div className="input-group">
+                                    <label>Group</label>
+                                    <select
+                                        className="input"
+                                        value={newPartType.group_type || ''}
+                                        onChange={(e) => setNewPartType({ ...newPartType, group_type: e.target.value })}
+                                    >
+                                        <option value="">-- Pilih --</option>
+                                        <option value="HGP">HGP</option>
+                                        <option value="Oli">Oli</option>
+                                        <option value="Non HGP">Non HGP</option>
+                                    </select>
+                                </div>
+
+                                <div className="input-group">
+                                    <label>Satuan</label>
+                                    <select
+                                        className="input"
+                                        value={newPartType.unit || ''}
+                                        onChange={(e) => setNewPartType({ ...newPartType, unit: e.target.value })}
+                                    >
+                                        <option value="">-- Pilih --</option>
+                                        <option value="Set">Set</option>
+                                        <option value="Pcs">Pcs</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div className="input-group">
+                                    <label>Harga Jual</label>
+                                    <input
+                                        type="number"
+                                        className="input"
+                                        placeholder="50000"
+                                        value={newPartType.sell_price || ''}
+                                        onChange={(e) => setNewPartType({ ...newPartType, sell_price: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="input-group">
+                                    <label>Harga Pokok</label>
+                                    <input
+                                        type="number"
+                                        className="input"
+                                        placeholder="40000"
+                                        value={newPartType.cost_price || ''}
+                                        onChange={(e) => setNewPartType({ ...newPartType, cost_price: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                                <button
+                                    className="btn btn-outline"
+                                    onClick={() => setShowAddPartModal(false)}
+                                    style={{ flex: 1 }}
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={() => {
+                                        handleAddPartType();
+                                        setShowAddPartModal(false);
+                                    }}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                                >
+                                    <Plus size={18} /> Tambah
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }

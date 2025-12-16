@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Search, RefreshCw, List, X, Trash2, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Save, Search, RefreshCw, List, X, Trash2, Calendar, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { api } from '../../services/api';
 
 export default function StockOpnameTable({ onRefresh }) {
@@ -11,6 +11,7 @@ export default function StockOpnameTable({ onRefresh }) {
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
+    const [historyPage, setHistoryPage] = useState(1); // Pagination for history modal
     const ITEMS_PER_PAGE = 20;
 
     // State untuk menyimpan input fisik. Format: { itemId: physicalQty }
@@ -147,6 +148,7 @@ export default function StockOpnameTable({ onRefresh }) {
             });
 
             setOpnameHistory(combined);
+            setHistoryPage(1); // Reset page
             setShowHistoryModal(true);
         } catch (error) {
             console.error('Failed to load opname history:', error);
@@ -247,7 +249,8 @@ export default function StockOpnameTable({ onRefresh }) {
                 </div>
             </div>
 
-            <div className="card table-responsive" style={{ padding: 0, overflow: 'hidden' }}>
+            {/* Desktop: Table View */}
+            <div className="card table-responsive desktop-only" style={{ padding: 0, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ backgroundColor: 'var(--bg-hover)', textAlign: 'left', borderBottom: '2px solid var(--border)' }}>
@@ -302,6 +305,115 @@ export default function StockOpnameTable({ onRefresh }) {
                         )}
                     </tbody>
                 </table>
+            </div>
+
+            {/* Mobile: Card View */}
+            <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {paginatedItems.length === 0 ? (
+                    <div className="card" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        {searchTerm ? `Tidak ada hasil untuk "${searchTerm}"` : 'Tidak ada data'}
+                    </div>
+                ) : (
+                    paginatedItems.map(item => {
+                        const physical = physicalStocks[item.id] !== undefined ? physicalStocks[item.id] : item.stock;
+                        const diff = physical - item.stock;
+                        const diffColor = diff === 0 ? 'var(--text-muted)' : diff > 0 ? 'var(--success)' : 'var(--danger)';
+                        const diffBgColor = diff === 0 ? 'var(--bg-hover)' : diff > 0 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)';
+
+                        return (
+                            <div
+                                key={item.id}
+                                className="card"
+                                style={{
+                                    padding: '1rem',
+                                    border: diff !== 0 ? '2px solid var(--warning)' : '1px solid var(--border)',
+                                    backgroundColor: diff !== 0 ? 'rgba(251, 146, 60, 0.05)' : 'var(--bg-card)'
+                                }}
+                            >
+                                {/* Header: Kode & Nama */}
+                                <div style={{ marginBottom: '0.75rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--border)' }}>
+                                    <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+                                        {item.id}
+                                    </div>
+                                    <div style={{ fontWeight: '600', fontSize: '1rem', color: 'var(--text-main)' }}>
+                                        {item.name}
+                                    </div>
+                                </div>
+
+                                {/* Data Grid */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                    {/* Stok Sistem */}
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem', fontWeight: '500' }}>
+                                            Stok Sistem
+                                        </label>
+                                        <div style={{
+                                            padding: '0.5rem',
+                                            backgroundColor: 'var(--bg-hover)',
+                                            borderRadius: '4px',
+                                            textAlign: 'center',
+                                            fontSize: '1.1rem',
+                                            fontWeight: 'bold',
+                                            color: 'var(--text-main)'
+                                        }}>
+                                            {item.stock}
+                                        </div>
+                                    </div>
+
+                                    {/* Stok Fisik Input */}
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem', fontWeight: '500' }}>
+                                            Stok Fisik
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={physical}
+                                            onChange={(e) => handlePhysicalChange(item.id, e.target.value)}
+                                            style={{
+                                                width: '100%',
+                                                textAlign: 'center',
+                                                padding: '0.5rem',
+                                                fontSize: '1.1rem',
+                                                border: diff !== 0 ? '2px solid var(--warning)' : '1px solid var(--border)',
+                                                borderRadius: '4px',
+                                                backgroundColor: 'var(--bg-main)',
+                                                color: 'var(--text-main)',
+                                                fontWeight: 'bold'
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Selisih */}
+                                <div style={{
+                                    padding: '0.75rem',
+                                    backgroundColor: diffBgColor,
+                                    borderRadius: '4px',
+                                    border: `1px solid ${diffColor}40`,
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                }}>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: '500', color: 'var(--text-muted)' }}>
+                                        Selisih:
+                                    </span>
+                                    <span style={{
+                                        fontSize: '1.2rem',
+                                        fontWeight: 'bold',
+                                        color: diffColor
+                                    }}>
+                                        {diff > 0 ? `+${diff}` : diff}
+                                        {diff !== 0 && (
+                                            <span style={{ fontSize: '0.75rem', marginLeft: '0.5rem', opacity: 0.8 }}>
+                                                {diff > 0 ? '(Surplus)' : '(Kurang)'}
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
             </div>
 
             {/* Pagination Controls */}
@@ -438,7 +550,7 @@ export default function StockOpnameTable({ onRefresh }) {
                                 <input
                                     type="date"
                                     value={startDate}
-                                    onChange={(e) => setStartDate(e.target.value)}
+                                    onChange={(e) => { setStartDate(e.target.value); setHistoryPage(1); }}
                                     style={{
                                         padding: '0.5rem',
                                         borderRadius: '4px',
@@ -452,7 +564,7 @@ export default function StockOpnameTable({ onRefresh }) {
                                 <input
                                     type="date"
                                     value={endDate}
-                                    onChange={(e) => setEndDate(e.target.value)}
+                                    onChange={(e) => { setEndDate(e.target.value); setHistoryPage(1); }}
                                     style={{
                                         padding: '0.5rem',
                                         borderRadius: '4px',
@@ -464,7 +576,7 @@ export default function StockOpnameTable({ onRefresh }) {
                                 />
                                 {(startDate || endDate) && (
                                     <button
-                                        onClick={() => { setStartDate(''); setEndDate(''); }}
+                                        onClick={() => { setStartDate(''); setEndDate(''); setHistoryPage(1); }}
                                         style={{
                                             padding: '0.5rem 1rem',
                                             borderRadius: '4px',
@@ -498,87 +610,186 @@ export default function StockOpnameTable({ onRefresh }) {
                                         <th style={{ padding: '0.75rem', textAlign: 'center', width: '100px' }}>Aksi</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {opnameHistory
-                                        .filter(record => {
-                                            const recordDate = new Date(record.date || record.created_at);
-                                            const start = startDate ? new Date(startDate) : null;
-                                            const end = endDate ? new Date(endDate) : null;
+                                {(() => {
+                                    // Pagination Logic for History
+                                    const filteredHistory = opnameHistory.filter(record => {
+                                        const recordDate = new Date(record.date || record.created_at);
+                                        const start = startDate ? new Date(startDate) : null;
+                                        const end = endDate ? new Date(endDate) : null;
 
-                                            if (start && recordDate < start) return false;
-                                            if (end && recordDate > end) return false;
-                                            return true;
-                                        })
-                                        .map((record, index) => {
-                                            const typeColor =
-                                                record.type === 'Surplus' ? 'var(--success)' :
-                                                    record.type === 'Transfer' ? 'var(--primary)' :
-                                                        'var(--danger)';
+                                        if (start && recordDate < start) return false;
+                                        if (end && recordDate > end) return false;
+                                        return true;
+                                    });
 
-                                            return (
-                                                <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
-                                                    <td style={{ padding: '0.75rem' }}>
-                                                        {new Date(record.date || record.created_at).toLocaleDateString('id-ID')}
-                                                    </td>
-                                                    <td style={{ padding: '0.75rem', fontFamily: 'monospace' }}>
-                                                        {record.code}
-                                                    </td>
-                                                    <td style={{ padding: '0.75rem' }}>
-                                                        {record.displayName}
-                                                    </td>
-                                                    <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: 'bold' }}>
-                                                        {record.qty} {record.unit || 'Pcs'}
-                                                    </td>
-                                                    <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                                                        <span style={{
-                                                            padding: '0.25rem 0.75rem',
-                                                            borderRadius: '99px',
-                                                            fontSize: '0.8rem',
-                                                            fontWeight: '600',
-                                                            backgroundColor: typeColor + '20',
-                                                            color: typeColor,
-                                                            border: `1px solid ${typeColor}40`
-                                                        }}>
-                                                            {record.type}
-                                                        </span>
-                                                    </td>
-                                                    <td style={{ padding: '0.75rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                                                        {record.reference_id || '-'}
-                                                    </td>
-                                                    <td style={{ padding: '0.75rem', textAlign: 'center' }}>
-                                                        <button
-                                                            onClick={() => handleDeleteOpname(record)}
-                                                            style={{
-                                                                background: 'none',
-                                                                border: '1px solid var(--danger)',
-                                                                borderRadius: '4px',
-                                                                padding: '0.4rem 0.6rem',
-                                                                cursor: 'pointer',
-                                                                color: 'var(--danger)',
+                                    const totalHistoryPages = Math.ceil(filteredHistory.length / ITEMS_PER_PAGE);
+                                    const startIdx = (historyPage - 1) * ITEMS_PER_PAGE;
+                                    const paginatedHistory = filteredHistory.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+
+                                    return (
+                                        <>
+                                            <tbody>
+                                                {paginatedHistory.map((record, index) => {
+                                                    const typeColor =
+                                                        record.type === 'Surplus' ? 'var(--success)' :
+                                                            record.type === 'Transfer' ? 'var(--primary)' :
+                                                                'var(--danger)';
+
+                                                    return (
+                                                        <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
+                                                            <td style={{ padding: '0.75rem' }}>
+                                                                {new Date(record.date || record.created_at).toLocaleDateString('id-ID')}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem', fontFamily: 'monospace' }}>
+                                                                {record.code}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem' }}>
+                                                                {record.displayName}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: 'bold' }}>
+                                                                {record.qty} {record.unit || 'Pcs'}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                                                <span style={{
+                                                                    padding: '0.25rem 0.75rem',
+                                                                    borderRadius: '99px',
+                                                                    fontSize: '0.8rem',
+                                                                    fontWeight: '600',
+                                                                    backgroundColor: typeColor + '20',
+                                                                    color: typeColor,
+                                                                    border: `1px solid ${typeColor}40`
+                                                                }}>
+                                                                    {record.type}
+                                                                </span>
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                                                {record.reference_id || '-'}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                                                <button
+                                                                    onClick={() => handleDeleteOpname(record)}
+                                                                    style={{
+                                                                        background: 'none',
+                                                                        border: '1px solid var(--danger)',
+                                                                        borderRadius: '4px',
+                                                                        padding: '0.4rem 0.6rem',
+                                                                        cursor: 'pointer',
+                                                                        color: 'var(--danger)',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        gap: '0.3rem',
+                                                                        fontSize: '0.85rem',
+                                                                        transition: 'all 0.2s',
+                                                                        margin: '0 auto'
+                                                                    }}
+                                                                    onMouseEnter={(e) => {
+                                                                        e.currentTarget.style.backgroundColor = 'var(--danger)';
+                                                                        e.currentTarget.style.color = 'white';
+                                                                    }}
+                                                                    onMouseLeave={(e) => {
+                                                                        e.currentTarget.style.backgroundColor = 'transparent';
+                                                                        e.currentTarget.style.color = 'var(--danger)';
+                                                                    }}
+                                                                    title="Hapus dan kembalikan stok"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                            {totalHistoryPages > 1 && (
+                                                <tfoot>
+                                                    <tr>
+                                                        <td colSpan="7">
+                                                            <div style={{
                                                                 display: 'flex',
                                                                 alignItems: 'center',
-                                                                gap: '0.3rem',
-                                                                fontSize: '0.85rem',
-                                                                transition: 'all 0.2s',
-                                                                margin: '0 auto'
-                                                            }}
-                                                            onMouseEnter={(e) => {
-                                                                e.currentTarget.style.backgroundColor = 'var(--danger)';
-                                                                e.currentTarget.style.color = 'white';
-                                                            }}
-                                                            onMouseLeave={(e) => {
-                                                                e.currentTarget.style.backgroundColor = 'transparent';
-                                                                e.currentTarget.style.color = 'var(--danger)';
-                                                            }}
-                                                            title="Hapus dan kembalikan stok"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                </tbody>
+                                                                justifyContent: 'space-between',
+                                                                padding: '1rem 0 0 0',
+                                                                marginTop: '1rem',
+                                                                borderTop: '1px solid var(--border)'
+                                                            }}>
+                                                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                                                    Menampilkan {startIdx + 1} - {Math.min(startIdx + ITEMS_PER_PAGE, filteredHistory.length)} dari {filteredHistory.length}
+                                                                </div>
+
+                                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                                    <button
+                                                                        onClick={() => setHistoryPage(1)}
+                                                                        disabled={historyPage === 1}
+                                                                        style={{
+                                                                            padding: '0.4rem',
+                                                                            border: '1px solid var(--border)',
+                                                                            borderRadius: '4px',
+                                                                            background: historyPage === 1 ? 'var(--bg-sub)' : 'var(--bg-card)',
+                                                                            cursor: historyPage === 1 ? 'not-allowed' : 'pointer',
+                                                                            color: historyPage === 1 ? 'var(--text-muted)' : 'var(--text-main)',
+                                                                            display: 'flex'
+                                                                        }}
+                                                                    >
+                                                                        <ChevronsLeft size={16} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setHistoryPage(prev => Math.max(prev - 1, 1))}
+                                                                        disabled={historyPage === 1}
+                                                                        style={{
+                                                                            padding: '0.4rem',
+                                                                            border: '1px solid var(--border)',
+                                                                            borderRadius: '4px',
+                                                                            background: historyPage === 1 ? 'var(--bg-sub)' : 'var(--bg-card)',
+                                                                            cursor: historyPage === 1 ? 'not-allowed' : 'pointer',
+                                                                            color: historyPage === 1 ? 'var(--text-muted)' : 'var(--text-main)',
+                                                                            display: 'flex'
+                                                                        }}
+                                                                    >
+                                                                        <ChevronLeft size={16} />
+                                                                    </button>
+
+                                                                    <span style={{ margin: '0 0.5rem', fontSize: '0.9rem' }}>
+                                                                        Hal {historyPage} / {totalHistoryPages}
+                                                                    </span>
+
+                                                                    <button
+                                                                        onClick={() => setHistoryPage(prev => Math.min(prev + 1, totalHistoryPages))}
+                                                                        disabled={historyPage === totalHistoryPages}
+                                                                        style={{
+                                                                            padding: '0.4rem',
+                                                                            border: '1px solid var(--border)',
+                                                                            borderRadius: '4px',
+                                                                            background: historyPage === totalHistoryPages ? 'var(--bg-sub)' : 'var(--bg-card)',
+                                                                            cursor: historyPage === totalHistoryPages ? 'not-allowed' : 'pointer',
+                                                                            color: historyPage === totalHistoryPages ? 'var(--text-muted)' : 'var(--text-main)',
+                                                                            display: 'flex'
+                                                                        }}
+                                                                    >
+                                                                        <ChevronRight size={16} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setHistoryPage(totalHistoryPages)}
+                                                                        disabled={historyPage === totalHistoryPages}
+                                                                        style={{
+                                                                            padding: '0.4rem',
+                                                                            border: '1px solid var(--border)',
+                                                                            borderRadius: '4px',
+                                                                            background: historyPage === totalHistoryPages ? 'var(--bg-sub)' : 'var(--bg-card)',
+                                                                            cursor: historyPage === totalHistoryPages ? 'not-allowed' : 'pointer',
+                                                                            color: historyPage === totalHistoryPages ? 'var(--text-muted)' : 'var(--text-main)',
+                                                                            display: 'flex'
+                                                                        }}
+                                                                    >
+                                                                        <ChevronsRight size={16} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                </tfoot>
+                                            )}
+                                        </>
+                                    );
+                                })()}
                             </table>
                         )}
                     </div>

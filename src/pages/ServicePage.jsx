@@ -28,6 +28,9 @@ export default function ServicePage() {
     // -- Filter State --
     const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
 
+    // -- Settings State --
+    const [settings, setSettings] = useState({});
+
     // -- Data Fetching --
     const fetchData = async () => {
         try {
@@ -41,8 +44,18 @@ export default function ServicePage() {
         }
     };
 
+    const fetchSettings = async () => {
+        try {
+            const data = await api.getSettings();
+            setSettings(data || {});
+        } catch (err) {
+            console.error("Failed to fetch settings", err);
+        }
+    };
+
     useEffect(() => {
         fetchData();
+        fetchSettings();
         // Poll every 5 seconds for updates from other clients
         const interval = setInterval(fetchData, 5000);
         return () => clearInterval(interval);
@@ -204,7 +217,20 @@ export default function ServicePage() {
         fetchData();
     };
 
-    const handlePrintWorkOrder = (queueItem) => {
+    const handlePrintWorkOrder = async (originalItem) => {
+        let history = null;
+        try {
+            history = await api.getCustomerLastVisit(originalItem.plateNumber, originalItem.id);
+        } catch (e) {
+            console.error("Failed fetching history", e);
+        }
+
+        const queueItem = {
+            ...originalItem,
+            lastVisit: history?.date,
+            lastMechanic: history?.mechanicName
+        };
+
         const printWindow = window.open('', '_blank');
 
         // Pisahkan items menjadi Jasa dan Part
@@ -260,280 +286,193 @@ export default function ServicePage() {
                 <title>Perintah Kerja #${queueItem.queueNumber}</title>
                 <style>
                     @page {
-                        size: 9.5in 11in; /* Continuous Form */
-                        margin: 0.3in;
+                        size: 8.5in 5.5in landscape; 
+                        margin: 0; 
                     }
                     body { 
-                        font-family: 'Courier New', 'Courier', monospace;
-                        font-size: 9pt;
-                        font-weight: bold;
-                        line-height: 1.3;
-                        letter-spacing: 0.3px;
+                        font-family: 'Courier New', 'Courier', monospace; 
+                        font-size: 10pt; /* Turunkan sedikit dari 11pt agar muat */
+                        font-weight: bold; 
+                        line-height: 1.05;
                         margin: 0;
-                        padding: 0;
-                        color: #000;
+                        padding: 0.25in 0.4in 0.1in 0.4in; /* Compact Padding */
+                        color: #000 !important;
+                        max-width: 8.3in; 
+                        max-height: 5.3in;
+                        -webkit-print-color-adjust: exact; 
+                        text-rendering: geometricPrecision; 
                     }
+                    * { text-shadow: none !important; }
+                    
+                    /* Compact Header Styles */
+                    .header-bengkel { font-size: 12pt; font-weight: bold; text-align: center; margin-bottom: 0px; }
+                    .header-phone { font-size: 9pt; text-align: center; margin-bottom: 2px; }
+                    
                     h1 { 
                         text-align: center;
-                        margin: 0 0 8px 0;
-                        font-size: 16pt;
+                        margin: 2px 0;
+                        font-size: 14pt; /* Compact Title */
                         font-weight: bold;
-                        letter-spacing: 2px;
+                        text-decoration: underline;
                     }
-                    .queue-number {
+                    .queue-box {
                         text-align: center;
-                        font-size: 18pt;
+                        font-size: 12pt;
                         font-weight: bold;
-                        border: 3px double #000;
-                        padding: 8px;
-                        margin: 10px auto;
-                        width: 150px;
-                        letter-spacing: 3px;
+                        border: 2px solid #000;
+                        padding: 1px;
+                        margin: 2px auto 4px auto;
+                        width: 160px;
+                    }
+                    .info-grid {
+                        display: flex;
+                        justify-content: space-between;
+                        margin-bottom: 4px;
+                        font-size: 10pt;
+                    }
+                    .complaint-box {
+                         border: 1px dashed #000; padding: 2px; margin: 2px 0; min-height: 18px; font-size: 10pt;
+                    }
+                    table { margin: 1px 0; font-size: 10pt; }
+                    
+                    /* ... */
+                    
+                    <!-- AREA TAMBAHAN MANUAL (Split 2 Kolom) -->
+                    <div style="margin-top: 3px; border: 1px solid #000; min-height: 2.1cm; display: flex;">
+                        <!-- ... -->
+                    </div>
+                    .info-column {
+                        width: 48%;
                     }
                     .info-row {
                         display: flex;
-                        margin-bottom: 4px;
-                        font-size: 9pt;
-                    }
-                    .info-label {
-                        width: 90px;
-                        font-weight: bold;
-                    }
-                    .info-value {
-                        flex: 1;
                     }
                     .complaint-box {
-                        border: 2px solid #000;
-                        padding: 8px;
-                        margin: 12px 0;
-                        min-height: 60px;
-                        background: #fff;
-                    }
-                    .complaint-box strong {
-                        display: block;
-                        margin-bottom: 6px;
-                        font-size: 9pt;
-                    }
-                    .complaint-text {
-                        font-size: 9pt;
-                        line-height: 1.4;
-                    }
-                    .two-column {
-                        display: grid;
-                        grid-template-columns: 1fr 1fr;
-                        gap: 15px;
-                        margin: 12px 0;
-                    }
-                    .column {
-                        border: 2px solid #000;
-                        padding: 10px;
-                    }
-                    .column-title {
-                        font-weight: bold;
+                        border: 1px dashed #000;
+                        padding: 3px;
+                        margin: 3px 0;
+                        min-height: 20px;
                         font-size: 11pt;
-                        text-align: center;
-                        margin-bottom: 8px;
-                        text-decoration: underline;
-                    }
-                    .section-subtitle {
-                        font-weight: bold;
-                        font-size: 9pt;
-                        margin-top: 10px;
-                        margin-bottom: 5px;
-                        border-bottom: 1px solid #000;
                     }
                     table {
                         width: 100%;
+                        table-layout: fixed; /* Agar lebar kolom konsisten antar tabel */
                         border-collapse: collapse;
-                        margin: 6px 0;
-                        font-size: 8pt;
-                    }
-                    th, td {
-                        padding: 4px;
-                        border: 1px solid #000;
-                        text-align: left;
+                        margin: 2px 0;
+                        font-size: 10pt;
                     }
                     th {
-                        background: #fff;
-                        font-weight: bold;
-                        text-align: center;
-                        font-size: 8pt;
+                        border-bottom: 2px solid #000;
+                        text-align: left;
                     }
-                    .total-row {
-                        font-weight: bold;
-                        border-top: 2px solid #000;
-                        font-size: 9pt;
+                    td {
+                        padding: 1px 0;
                     }
-                    .empty-row {
-                        height: 25px;
-                    }
+                    .text-right { text-align: right; }
+                    .text-center { text-align: center; }
                     .signature-section {
                         display: flex;
                         justify-content: space-between;
-                        margin-top: 30px;
-                        font-size: 9pt;
+                        margin-top: 5px;
+                        font-size: 11pt;
                     }
                     .signature-box {
-                        width: 48%;
+                        min-width: 150px;
+                        width: auto;
                         text-align: center;
                     }
                     .signature-line {
-                        border-bottom: 1px solid #000;
-                        margin-top: 40px;
-                        padding-top: 5px;
-                        font-weight: bold;
-                    }
-                    @media print {
-                        body { 
-                            -webkit-print-color-adjust: exact;
-                            print-color-adjust: exact;
-                        }
+                        border-top: 1px solid #000;
+                        margin-top: 20px;
+                        padding-top: 2px;
                     }
                 </style>
             </head>
             <body>
+                <div class="header-bengkel">${settings.workshopName || 'MUTIARA MOTOR 2'}</div>
+                <div class="header-phone">HP/WA: ${settings.workshopPhone || '-'}</div>
+                
                 <h1>PERINTAH KERJA</h1>
                 
-                <div class="queue-number">
-                    NO. ${queueItem.queueNumber}
+                <div class="queue-box">
+                    ANTRIAN #${queueItem.queueNumber}
                 </div>
 
-                <div style="margin-bottom: 8px;">
-                    <div class="info-row">
-                        <div class="info-label">Tanggal</div>
-                        <div class="info-value">: ${new Date(queueItem.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })} - ${queueItem.entryTime}</div>
+                <div class="info-grid">
+                    <div class="info-column">
+                        <div class="info-row"><div class="info-label">Tgl</div><div>: ${new Date(queueItem.date).toLocaleDateString('id-ID')} ${queueItem.entryTime}</div></div>
+                        <div class="info-row"><div class="info-label">Nama</div><div>: ${queueItem.customerName.substring(0, 20)}</div></div>
+                        <div class="info-row"><div class="info-label">No. HP</div><div>: ${queueItem.phoneNumber || '-'}</div></div>
                     </div>
-                    <div class="info-row">
-                        <div class="info-label">Pelanggan</div>
-                        <div class="info-value">: ${queueItem.customerName} (${queueItem.phoneNumber || '-'})</div>
-                    </div>
-                    <div class="info-row">
-                        <div class="info-label">Kendaraan</div>
-                        <div class="info-value">: ${queueItem.plateNumber} - ${queueItem.bikeModel} (KM: ${queueItem.kilometer || '-'})</div>
+                    <div class="info-column">
+                        <div class="info-row"><div class="info-label">Unit</div><div>: ${queueItem.plateNumber}</div></div>
+                        <div class="info-row"><div class="info-label">Tipe</div><div>: ${queueItem.bikeModel.substring(0, 20)}</div></div>
+                        <div class="info-row"><div class="info-label">Alamat</div><div>: ${queueItem.address ? queueItem.address.substring(0, 25) : '-'}</div></div>
                     </div>
                 </div>
 
                 <div class="complaint-box">
-                    <strong>KELUHAN:</strong>
-                    <div class="complaint-text">${queueItem.complaint || 'Tidak ada catatan'}</div>
+                    <strong>KELUHAN:</strong> ${queueItem.complaint || '-'}
+                </div>
+                
+                ${jasaItems.length > 0 ? `
+                <div style="margin-top: 3px; border-bottom: 1px solid #000; font-weight: bold;">JASA</div>
+                <table>
+                    ${jasaItems.map(item => `
+                    <tr>
+                        <td width="60%">${item.name}</td>
+                        <td width="10%" class="text-center">${item.q}</td>
+                        <td width="30%" class="text-right">Rp ${(item.price * item.q).toLocaleString()}</td>
+                    </tr>
+                    `).join('')}
+                </table>
+                ` : ''}
+
+                ${partItems.length > 0 ? `
+                <div style="margin-top: 8px; border-bottom: 1px solid #000; font-weight: bold;">PART</div>
+                <table>
+                    ${partItems.map(item => `
+                    <tr>
+                        <td width="60%">${item.name}</td>
+                        <td width="10%" class="text-center">${item.q}</td>
+                        <td width="30%" class="text-right">Rp ${(item.price * item.q).toLocaleString()}</td>
+                    </tr>
+                    `).join('')}
+                </table>
+                ` : ''}
+
+                <!-- TOTAL ESTIMASI -->
+                <div style="margin-top: 8px; padding-top: 3px; border-top: 2px solid #000; text-align: right; font-weight: bold; font-size: 10pt;">
+                    TOTAL ESTIMASI: Rp ${totalEstimasi.toLocaleString()}
                 </div>
 
-                <div class="two-column">
-                    <!-- KOLOM KIRI: ESTIMASI AWAL -->
-                    <div class="column">
-                        <div class="column-title">ESTIMASI AWAL</div>
-                        
-                        <div class="section-subtitle">JASA SERVIS</div>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width: 40%">Nama</th>
-                                    <th style="width: 10%; text-align: center">Qty</th>
-                                    <th style="width: 25%; text-align: right">Harga</th>
-                                    <th style="width: 25%; text-align: right">Subtotal</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${jasaHtml}
-                                <tr class="total-row">
-                                    <td colspan="3" style="text-align: right">TOTAL JASA</td>
-                                    <td style="text-align: right">Rp ${totalJasa.toLocaleString()}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        <div class="section-subtitle">SPAREPART</div>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width: 40%">Nama</th>
-                                    <th style="width: 10%; text-align: center">Qty</th>
-                                    <th style="width: 25%; text-align: right">Harga</th>
-                                    <th style="width: 25%; text-align: right">Subtotal</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${partHtml}
-                                <tr class="total-row">
-                                    <td colspan="3" style="text-align: right">TOTAL PART</td>
-                                    <td style="text-align: right">Rp ${totalPart.toLocaleString()}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        <table style="margin-top: 8px;">
-                            <tr class="total-row" style="background: #f0f0f0;">
-                                <td colspan="3" style="font-size: 10pt; text-align: right">TOTAL ESTIMASI</td>
-                                <td style="text-align: right; font-size: 10pt;">Rp ${totalEstimasi.toLocaleString()}</td>
-                            </tr>
-                        </table>
+                <!-- AREA TAMBAHAN MANUAL (Split 2 Kolom) -->
+                <div style="margin-top: 3px; border: 1px solid #000; min-height: 2.1cm; display: flex;">
+                    <!-- Kolom Kiri: Jasa -->
+                    <div style="width: 50%; border-right: 1px solid #000; position: relative;">
+                        <span style="position: absolute; top: 2px; left: 2px; font-size: 10pt; font-weight: bold;">TAMBAHAN JASA (Manual):</span>
                     </div>
-
-                    <!-- KOLOM KANAN: TAMBAHAN MANUAL -->
-                    <div class="column">
-                        <div class="column-title">TAMBAHAN</div>
-                        
-                        <div class="section-subtitle">JASA TAMBAHAN</div>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width: 50%">Nama</th>
-                                    <th style="width: 15%">Qty</th>
-                                    <th style="width: 35%; text-align: right">Harga</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="total-row">
-                                    <td colspan="2">TOTAL JASA</td>
-                                    <td style="text-align: right"></td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        <div class="section-subtitle">PART TAMBAHAN</div>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width: 50%">Nama</th>
-                                    <th style="width: 15%">Qty</th>
-                                    <th style="width: 35%; text-align: right">Harga</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="empty-row"><td>&nbsp;</td><td></td><td></td></tr>
-                                <tr class="total-row">
-                                    <td colspan="2">TOTAL PART</td>
-                                    <td style="text-align: right"></td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        <table style="margin-top: 8px;">
-                            <tr class="total-row" style="background: #f0f0f0;">
-                                <td colspan="2" style="font-size: 10pt;">TOTAL TAMBAHAN</td>
-                                <td style="text-align: right; font-size: 10pt;"></td>
-                            </tr>
-                        </table>
+                    <!-- Kolom Kanan: Part -->
+                    <div style="width: 50%; position: relative;">
+                        <span style="position: absolute; top: 2px; left: 2px; font-size: 10pt; font-weight: bold;">TAMBAHAN PART (Manual):</span>
                     </div>
                 </div>
 
                 <div class="signature-section">
                     <div class="signature-box">
-                        <div>Penerima,</div>
-                        <div class="signature-line">${queueItem.customerName}</div>
+                        <div style="font-size: 10pt; text-align: left;">
+                            <div>Kunjungan Terakhir:</div>
+                            <div style="font-weight: bold; margin-top: 3px;">
+                                ${queueItem.lastVisit
+                ? `<div>${new Date(queueItem.lastVisit).toLocaleDateString('id-ID')}</div>
+                                       ${queueItem.lastMechanic ? `<div style="margin-top: 2px; white-space: nowrap;">${queueItem.lastMechanic}</div>` : ''}`
+                : '-'}
+                            </div>
+                        </div>
                     </div>
                     <div class="signature-box">
-                        <div>Mekanik,</div>
-                        <div class="signature-line">(...........................)</div>
+                        <div>Mekanik</div>
+                        <div class="signature-line"></div>
                     </div>
                 </div>
             </body>

@@ -1,10 +1,18 @@
-import React, { useState } from 'react';
-import { Edit2, Trash2, X, Save } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Edit2, Trash2, X, Save, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { api } from '../../services/api';
+
+const ITEMS_PER_PAGE = 20;
 
 export default function StockInTable({ items, onRefresh }) {
     const [selectedItem, setSelectedItem] = useState(null);
     const [editData, setEditData] = useState(null);
+    const [currentPage, setCurrentPage] = useState(1);
+
+    // Reset page when items change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [items?.length]);
 
     const handleRowClick = (item) => {
         setSelectedItem(item);
@@ -76,50 +84,141 @@ export default function StockInTable({ items, onRefresh }) {
         );
     }
 
+    // Pagination Logic
+    const totalPages = Math.ceil(items.length / ITEMS_PER_PAGE);
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const paginatedItems = items.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
     return (
-        <>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                    <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border)', color: 'var(--text-muted)' }}>
-                        <th style={{ padding: '0.75rem 1rem' }}>Tanggal</th>
-                        <th style={{ padding: '0.75rem 1rem' }}>Kode</th>
-                        <th style={{ padding: '0.75rem 1rem' }}>Nama Part</th>
-                        <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Qty</th>
-                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Harga</th>
-                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {items.map((item) => (
-                        <tr
-                            key={item.id}
-                            onClick={() => handleRowClick(item)}
-                            style={{
-                                borderBottom: '1px solid var(--border)',
-                                cursor: 'pointer',
-                                transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.9rem' }}>
-                                {new Date(item.date).toLocaleDateString('id-ID')}
-                            </td>
-                            <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace' }}>{item.code}</td>
-                            <td style={{ padding: '0.75rem 1rem', fontWeight: '500' }}>{item.name}</td>
-                            <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
-                                {item.qty} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{item.unit}</span>
-                            </td>
-                            <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                                Rp {(item.price || 0).toLocaleString()}
-                            </td>
-                            <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
-                                Rp {(item.total || 0).toLocaleString()}
-                            </td>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ overflowX: 'auto', flex: 1 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border)', color: 'var(--text-muted)' }}>
+                            <th style={{ padding: '0.75rem 1rem' }}>Tanggal</th>
+                            <th style={{ padding: '0.75rem 1rem' }}>Kode</th>
+                            <th style={{ padding: '0.75rem 1rem' }}>Nama Part</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Qty</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Harga</th>
+                            <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Total</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {paginatedItems.map((item) => (
+                            <tr
+                                key={item.id}
+                                onClick={() => handleRowClick(item)}
+                                style={{
+                                    borderBottom: '1px solid var(--border)',
+                                    cursor: 'pointer',
+                                    transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            >
+                                <td style={{ padding: '0.75rem 1rem', fontSize: '0.9rem' }}>
+                                    {new Date(item.date).toLocaleDateString('id-ID')}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace' }}>{item.code}</td>
+                                <td style={{ padding: '0.75rem 1rem', fontWeight: '500' }}>{item.name}</td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                                    {item.qty} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{item.unit}</span>
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                                    Rp {(item.price || 0).toLocaleString()}
+                                </td>
+                                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
+                                    Rp {(item.total || 0).toLocaleString()}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '1rem',
+                    borderTop: '1px solid var(--border)',
+                    marginTop: 'auto'
+                }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        Menampilkan {startIndex + 1} - {Math.min(startIndex + ITEMS_PER_PAGE, items.length)} dari {items.length} data
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <button
+                            onClick={() => setCurrentPage(1)}
+                            disabled={currentPage === 1}
+                            style={{
+                                padding: '0.4rem',
+                                border: '1px solid var(--border)',
+                                borderRadius: '4px',
+                                background: currentPage === 1 ? 'var(--bg-sub)' : 'var(--bg-card)',
+                                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                color: currentPage === 1 ? 'var(--text-muted)' : 'var(--text-main)',
+                                display: 'flex'
+                            }}
+                        >
+                            <ChevronsLeft size={16} />
+                        </button>
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                            disabled={currentPage === 1}
+                            style={{
+                                padding: '0.4rem',
+                                border: '1px solid var(--border)',
+                                borderRadius: '4px',
+                                background: currentPage === 1 ? 'var(--bg-sub)' : 'var(--bg-card)',
+                                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                color: currentPage === 1 ? 'var(--text-muted)' : 'var(--text-main)',
+                                display: 'flex'
+                            }}
+                        >
+                            <ChevronLeft size={16} />
+                        </button>
+
+                        <span style={{ margin: '0 0.5rem', fontSize: '0.9rem' }}>
+                            Halaman {currentPage} dari {totalPages}
+                        </span>
+
+                        <button
+                            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                            disabled={currentPage === totalPages}
+                            style={{
+                                padding: '0.4rem',
+                                border: '1px solid var(--border)',
+                                borderRadius: '4px',
+                                background: currentPage === totalPages ? 'var(--bg-sub)' : 'var(--bg-card)',
+                                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                                color: currentPage === totalPages ? 'var(--text-muted)' : 'var(--text-main)',
+                                display: 'flex'
+                            }}
+                        >
+                            <ChevronRight size={16} />
+                        </button>
+                        <button
+                            onClick={() => setCurrentPage(totalPages)}
+                            disabled={currentPage === totalPages}
+                            style={{
+                                padding: '0.4rem',
+                                border: '1px solid var(--border)',
+                                borderRadius: '4px',
+                                background: currentPage === totalPages ? 'var(--bg-sub)' : 'var(--bg-card)',
+                                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                                color: currentPage === totalPages ? 'var(--text-muted)' : 'var(--text-main)',
+                                display: 'flex'
+                            }}
+                        >
+                            <ChevronsRight size={16} />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Edit/Delete Modal */}
             {selectedItem && (
@@ -263,6 +362,6 @@ export default function StockInTable({ items, onRefresh }) {
                     </div>
                 </div>
             )}
-        </>
+        </div>
     );
 }

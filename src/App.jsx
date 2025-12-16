@@ -99,14 +99,22 @@ function App() {
 
           <main className="main-content no-scrollbar">
             <Routes>
-              <Route path="/" element={<ServicePage user={user} />} />
+              <Route path="/" element={
+                user?.role === 'gudang'
+                  ? <Navigate to="/inventory" replace />
+                  : <ServicePage user={user} />
+              } />
               <Route path="/sales" element={<SalesPage user={user} />} />
               <Route path="/inventory" element={<InventoryPage user={user} />} />
               <Route path="/reports" element={<ReportsPage user={user} />} />
               <Route path="/attendance" element={<AttendancePage user={user} />} />
               <Route path="/database-backup" element={<DatabaseBackup />} />
               <Route path="/settings" element={<SettingsPage user={user} />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={
+                user?.role === 'gudang'
+                  ? <Navigate to="/inventory" replace />
+                  : <Navigate to="/" replace />
+              } />
             </Routes>
           </main>
         </div>

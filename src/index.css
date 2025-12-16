@@ -471,3 +471,24 @@ a {
     width: 100% !important;
   }
 }
+
+/* Responsive Utilities */
+/* Desktop: Large screens only (>1024px) */
+.desktop-only {
+  display: block;
+}
+
+.mobile-only {
+  display: none !important;
+}
+
+/* Tablet & Mobile: Show card layout (<1024px) */
+@media (max-width: 1024px) {
+  .desktop-only {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+}

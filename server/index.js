@@ -117,9 +117,9 @@ app.get('/api/customer-lookup', (req, res) => {
     const { plate } = req.query;
     if (!plate) return res.status(400).json({ error: 'Plate number required' });
 
-    // Check customers table first
+    // Check customers table first (Case Insensitive & Ignore Spaces)
     db.get(
-        "SELECT * FROM customers WHERE plate_number = ?",
+        "SELECT * FROM customers WHERE REPLACE(UPPER(plate_number), ' ', '') = REPLACE(UPPER(?), ' ', '')",
         [plate],
         (err, customer) => {
             if (err) return res.status(500).json({ error: err.message });
@@ -139,7 +139,7 @@ app.get('/api/customer-lookup', (req, res) => {
             } else {
                 // Fallback to queue table for backward compatibility
                 db.get(
-                    "SELECT * FROM queue WHERE plateNumber = ? ORDER BY id DESC LIMIT 1",
+                    "SELECT * FROM queue WHERE REPLACE(UPPER(plateNumber), ' ', '') = REPLACE(UPPER(?), ' ', '') ORDER BY id DESC LIMIT 1",
                     [plate],
                     (err, row) => {
                         if (err) return res.status(500).json({ error: err.message });
@@ -162,6 +162,68 @@ app.get('/api/customer-lookup', (req, res) => {
             }
         }
     );
+});
+// Customer Last Visit Logic (Filter JS agar robust)
+app.get('/api/customer-last-visit', (req, res) => {
+    const { plate } = req.query;
+    if (!plate) return res.json({ date: null, mechanicName: null });
+
+    const cleanParam = plate.replace(/\s/g, '').toUpperCase();
+
+    const sql = `
+        SELECT q.date, q.plateNumber, m.name as mechanicName
+        FROM queue q
+        LEFT JOIN mechanics m ON q.mechanicId = m.id
+        ORDER BY q.date DESC, q.id DESC
+    `;
+
+    db.all(sql, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // Filter manual untuk memastikan match (ignore space/case) DAN ada mekaniknya
+        const found = rows.find(r => {
+            if (!r.plateNumber) return false;
+            // Pastikan ada mekaniknya (jika current visit belum assign mekanik, cari previous visit)
+            if (!r.mechanicName) return false;
+            return r.plateNumber.replace(/\s/g, '').toUpperCase() === cleanParam;
+        });
+
+        res.json(found || { date: null, mechanicName: null });
+    });
+});
+
+// POST Customer (Upsert)
+app.post('/api/customers', (req, res) => {
+    const {
+        plateNumber, customerName, bikeModel, engineNumber,
+        frameNumber, year, color, phoneNumber, address, kilometer
+    } = req.body;
+
+    const sql = `INSERT INTO customers (
+        plate_number, customer_name, bike_model, engine_number,
+        frame_number, year, color, phone_number, address, kilometer
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(plate_number) DO UPDATE SET
+        customer_name = excluded.customer_name,
+        bike_model = excluded.bike_model,
+        engine_number = excluded.engine_number,
+        frame_number = excluded.frame_number,
+        year = excluded.year,
+        color = excluded.color,
+        phone_number = excluded.phone_number,
+        address = excluded.address,
+        kilometer = excluded.kilometer,
+        updated_at = CURRENT_TIMESTAMP`;
+
+    const params = [
+        plateNumber, customerName, bikeModel, engineNumber,
+        frameNumber, year, color, phoneNumber, address, kilometer
+    ];
+
+    db.run(sql, params, function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ id: this.lastID, ...req.body });
+    });
 });
 
 // 5. POST Queue
@@ -528,9 +590,44 @@ app.post('/api/part-types', (req, res) => {
 app.delete('/api/part-types/:id', (req, res) => {
     const { id } = req.params;
 
-    db.run("DELETE FROM part_types WHERE id = ?", [id], function (err) {
+    // First, get the part_type to find inventory ID
+    db.get("SELECT code FROM part_types WHERE id = ?", [id], (err, partType) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: 'Deleted', changes: this.changes });
+        if (!partType) return res.status(404).json({ error: 'Part type not found' });
+
+        const inventoryId = partType.code || `PT${id}`;
+
+        // Check if item has stock in inventory (safety check)
+        db.get("SELECT stock FROM inventory WHERE id = ?", [inventoryId], (invErr, invItem) => {
+            if (invErr) {
+                console.error('Error checking inventory:', invErr);
+            }
+
+            // If item has stock > 0, warn but still allow deletion
+            if (invItem && invItem.stock > 0) {
+                console.warn(`⚠️  Deleting item with stock: ${inventoryId} (stock: ${invItem.stock})`);
+            }
+
+            // Delete from part_types
+            db.run("DELETE FROM part_types WHERE id = ?", [id], function (deleteErr) {
+                if (deleteErr) return res.status(500).json({ error: deleteErr.message });
+
+                // Also delete from inventory
+                db.run("DELETE FROM inventory WHERE id = ?", [inventoryId], function (invDeleteErr) {
+                    if (invDeleteErr) {
+                        console.error('Failed to delete from inventory:', invDeleteErr);
+                        // Don't fail the request, just log
+                    }
+
+                    res.json({
+                        message: 'Deleted',
+                        changes: this.changes,
+                        inventory_deleted: !invDeleteErr,
+                        had_stock: invItem ? invItem.stock : 0
+                    });
+                });
+            });
+        });
     });
 });
 
@@ -1330,6 +1427,42 @@ app.delete('/api/expenses/:id', (req, res) => {
     });
 });
 
+
+// --- SETTINGS ENDPOINTS ---
+
+app.get('/api/settings', (req, res) => {
+    db.all("SELECT * FROM settings", [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const settings = {};
+        rows.forEach(row => {
+            settings[row.key] = row.value;
+        });
+        res.json(settings);
+    });
+});
+
+app.post('/api/settings', (req, res) => {
+    const settings = req.body; // Expect object key-value
+    if (!settings || typeof settings !== 'object') {
+        return res.status(400).json({ error: 'Invalid settings data' });
+    }
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+        const stmt = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
+
+        Object.keys(settings).forEach(key => {
+            const val = settings[key] === null || settings[key] === undefined ? '' : String(settings[key]);
+            stmt.run(key, val);
+        });
+
+        stmt.finalize();
+        db.run("COMMIT", (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true, message: 'Settings saved' });
+        });
+    });
+});
 
 // --- DATABASE BACKUP/RESTORE ENDPOINTS ---
 

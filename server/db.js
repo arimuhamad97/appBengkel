@@ -177,6 +177,13 @@ export function initDb() {
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )`);
 
+        // Migration: Add kilometer column to customers
+        db.run(`ALTER TABLE customers ADD COLUMN kilometer TEXT`, (err) => {
+            if (err && !err.message.includes('duplicate column')) {
+                // Ignore if exists
+            }
+        });
+
         // Stock In Table (Riwayat Stok Masuk)
         db.run(`CREATE TABLE IF NOT EXISTS stock_in (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -245,6 +252,12 @@ export function initDb() {
             amount INTEGER NOT NULL,
             notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )`);
+
+        // Settings Table (Key-Value Store)
+        db.run(`CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
         )`);
 
         console.log('Database tables initialized');
