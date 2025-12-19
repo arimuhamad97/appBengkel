@@ -492,3 +492,126 @@ a {
     display: flex !important;
   }
 }
+
+/* Specific Component fixes */
+.service-page-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 5rem);
+  overflow: auto;
+  /* Changed from hidden to auto for better scroll fallback */
+  position: relative;
+}
+
+.service-header-wrapper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.hide-mobile {
+  display: inline;
+}
+
+@media (max-width: 768px) {
+  .hide-mobile {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .service-page-container {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .service-header-wrapper h1 {
+    font-size: 1.4rem !important;
+  }
+
+  .service-header-wrapper div[style*="justify-content: space-between"] {
+    flex-direction: row !important;
+    /* Keep h1 and button side by side on mobile header */
+    align-items: center !important;
+  }
+
+  /* Fix for overlapping buttons in tables */
+  .table-responsive table td>div {
+    flex-wrap: wrap;
+    gap: 0.25rem !important;
+  }
+
+  /* Fix and normalize button sizes */
+  .btn {
+    min-height: 40px;
+  }
+
+  /* POS Sales mobile fix */
+  div[style*="grid-template-columns: 2fr 1fr"] {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+
+  div[style*="border-left"] {
+    border-left: none !important;
+    padding-left: 0 !important;
+    border-top: 1px solid var(--border);
+    padding-top: 2rem !important;
+  }
+}
+
+/* Grid & Layout Utilities */
+.grid-cols-1 {
+  grid-template-columns: 1fr;
+}
+
+.grid-cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.grid-cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.grid-cols-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 640px) {
+  .sm-grid-cols-1 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Better touch targets for mobile */
+input,
+select,
+button {
+  font-size: 16px !important;
+  /* Prevents iOS auto-zoom */
+}
+
+/* Mobile Table Improvements */
+.table-responsive {
+  overflow-x: auto;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+
+  .table-responsive table th,
+  .table-responsive table td {
+    padding: 0.25rem !important;
+    font-size: 0.8rem !important;
+  }
+
+  .table-responsive .btn-outline {
+    padding: 2px 4px !important;
+  }
+}

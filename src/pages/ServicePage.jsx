@@ -5,12 +5,27 @@ import ServiceProcessForm from '../components/service/ServiceProcessForm';
 import ServiceEntryForm from '../components/service/ServiceEntryForm';
 import ServiceInvoice from '../components/service/ServiceInvoice';
 import { api } from '../services/api';
+import { formatSPK } from '../utils/printHelpers';
 
 export default function ServicePage() {
+    // Helper for robust local date (YYYY-MM-DD)
+    const getLocalDate = (d = new Date()) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
     const [activeTab, setActiveTab] = useState('queue'); // queue, process, completed, paid
     const [queue, setQueue] = useState([]);
     const [mechanics, setMechanics] = useState([]);
     const [loading, setLoading] = useState(true);
+    // -- Settings State -- (Moved up for grouping)
+    const [settings, setSettings] = useState({});
+
+    // DEBUG PREVIEW STATE (Temporary)
+    const [previewText, setPreviewText] = useState(null);
+    const [previewData, setPreviewData] = useState(null); // To store item needed for actual print if confirmed
     const [selectedService, setSelectedService] = useState(null);
     const [showEntryForm, setShowEntryForm] = useState(false);
 
@@ -26,10 +41,7 @@ export default function ServicePage() {
     const [selectedInvoiceItem, setSelectedInvoiceItem] = useState(null);
 
     // -- Filter State --
-    const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
-
-    // -- Settings State --
-    const [settings, setSettings] = useState({});
+    const [filterDate, setFilterDate] = useState(getLocalDate());
 
     // -- Data Fetching --
     const fetchData = async () => {
@@ -110,14 +122,14 @@ export default function ServicePage() {
             alert('Data Antrian Berhasil Diperbarui!');
         } else {
             // CREATE NEW
-            const today = new Date().toISOString().split('T')[0];
-            const todaysQueue = queue.filter(q => q.date === today);
-            const lastQueueNum = todaysQueue.length > 0 ? Math.max(...todaysQueue.map(q => q.queueNumber || 0)) : 0;
+            const selectedDate = formData.date || getLocalDate();
+            const sameDayQueue = queue.filter(q => q.date === selectedDate);
+            const lastQueueNum = sameDayQueue.length > 0 ? Math.max(...sameDayQueue.map(q => Number(q.queueNumber) || 0)) : 0;
             const newQueueNumber = lastQueueNum + 1;
 
             const newQueueItem = {
                 queueNumber: newQueueNumber,
-                date: today,
+                date: selectedDate,
                 customerName: formData.customerName,
                 bikeModel: formData.bikeModel,
                 plateNumber: formData.plateNumber.toUpperCase(),
@@ -184,7 +196,9 @@ export default function ServicePage() {
         const updatedItem = {
             ...selectedPaymentItem,
             status: 'Paid',
-            mechanicId: selectedMechanic
+            mechanicId: selectedMechanic,
+            date: selectedPaymentItem.date, // Keep original registration date for reporting
+            payment_date: getLocalDate() // Explicitly set payment date to today
         };
 
         await api.updateJob(selectedPaymentItem.id, updatedItem);
@@ -192,6 +206,7 @@ export default function ServicePage() {
         setSelectedPaymentItem(null);
         alert('Pembayaran Berhasil! Masuk ke Riwayat.');
     };
+
 
     const handleCancelService = () => {
         setSelectedService(null);
@@ -218,283 +233,62 @@ export default function ServicePage() {
     };
 
     const handlePrintWorkOrder = async (originalItem) => {
-        let history = null;
+        // Fetch latest settings to avoid stale state
+        let currentSettings = settings;
         try {
-            history = await api.getCustomerLastVisit(originalItem.plateNumber, originalItem.id);
+            currentSettings = await api.getSettings();
+            setSettings(currentSettings);
+        } catch (e) { console.error("Failed to refresh settings", e); }
+
+        // Network Print Check (With Debug Preview)
+        const targetPrinter = currentSettings.printer_name || 'EPSON';
+
+        try {
+            const textContent = formatSPK(originalItem, currentSettings);
+            // INSTEAD OF PRINTING, SHOW PREVIEW
+            setPreviewText(textContent);
+            setPreviewData({ text: textContent, printer: targetPrinter });
         } catch (e) {
-            console.error("Failed fetching history", e);
+            alert('Gagal format: ' + e.message);
         }
+    };
 
-        const queueItem = {
-            ...originalItem,
-            lastVisit: history?.date,
-            lastMechanic: history?.mechanicName
-        };
-
-        const printWindow = window.open('', '_blank');
-
-        // Pisahkan items menjadi Jasa dan Part
-        const jasaItems = queueItem.items?.filter(item => item.type === 'Service') || [];
-        const partItems = queueItem.items?.filter(item => item.type === 'Part') || [];
-
-        const jasaHtml = jasaItems.length > 0
-            ? jasaItems.map(item => `
-                <tr>
-                    <td>${item.name}</td>
-                    <td style="text-align: center">${item.q}</td>
-                    <td style="text-align: right">Rp ${(item.price || 0).toLocaleString()}</td>
-                    <td style="text-align: right">Rp ${((item.price || 0) * item.q).toLocaleString()}</td>
-                </tr>
-            `).join('')
-            : '<tr><td colspan="4" style="text-align: center;">-</td></tr>';
-
-        const partHtml = partItems.length > 0
-            ? partItems.map(item => `
-                <tr>
-                    <td>${item.name}</td>
-                    <td style="text-align: center">${item.q} ${item.unit || 'pcs'}</td>
-                    <td style="text-align: right">Rp ${(item.price || 0).toLocaleString()}</td>
-                    <td style="text-align: right">Rp ${((item.price || 0) * item.q).toLocaleString()}</td>
-                </tr>
-            `).join('')
-            : '<tr><td colspan="4" style="text-align: center;">-</td></tr>';
-
-        // Tambahkan baris kosong untuk jasa tambahan
-        const jasaEmptyRows = `
-            <tr style="height: 30px;"><td>&nbsp;</td><td></td><td></td><td></td></tr>
-            <tr style="height: 30px;"><td>&nbsp;</td><td></td><td></td><td></td></tr>
-            <tr style="height: 30px;"><td>&nbsp;</td><td></td><td></td><td></td></tr>
-        `;
-
-        // Tambahkan baris kosong untuk part tambahan
-        const partEmptyRows = `
-            <tr style="height: 30px;"><td>&nbsp;</td><td></td><td></td><td></td></tr>
-            <tr style="height: 30px;"><td>&nbsp;</td><td></td><td></td><td></td></tr>
-            <tr style="height: 30px;"><td>&nbsp;</td><td></td><td></td><td></td></tr>
-            <tr style="height: 30px;"><td>&nbsp;</td><td></td><td></td><td></td></tr>
-            <tr style="height: 30px;"><td>&nbsp;</td><td></td><td></td><td></td></tr>
-        `;
-
-        const totalJasa = jasaItems.reduce((s, x) => s + (x.price * x.q), 0);
-        const totalPart = partItems.reduce((s, x) => s + (x.price * x.q), 0);
-        const totalEstimasi = totalJasa + totalPart;
-
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Perintah Kerja #${queueItem.queueNumber}</title>
-                <style>
-                    @page {
-                        size: 8.5in 5.5in landscape; 
-                        margin: 0; 
-                    }
-                    body { 
-                        font-family: 'Courier New', 'Courier', monospace; 
-                        font-size: 10pt; /* Turunkan sedikit dari 11pt agar muat */
-                        font-weight: bold; 
-                        line-height: 1.05;
-                        margin: 0;
-                        padding: 0.25in 0.4in 0.1in 0.4in; /* Compact Padding */
-                        color: #000 !important;
-                        max-width: 8.3in; 
-                        max-height: 5.3in;
-                        -webkit-print-color-adjust: exact; 
-                        text-rendering: geometricPrecision; 
-                    }
-                    * { text-shadow: none !important; }
-                    
-                    /* Compact Header Styles */
-                    .header-bengkel { font-size: 12pt; font-weight: bold; text-align: center; margin-bottom: 0px; }
-                    .header-phone { font-size: 9pt; text-align: center; margin-bottom: 2px; }
-                    
-                    h1 { 
-                        text-align: center;
-                        margin: 2px 0;
-                        font-size: 14pt; /* Compact Title */
-                        font-weight: bold;
-                        text-decoration: underline;
-                    }
-                    .queue-box {
-                        text-align: center;
-                        font-size: 12pt;
-                        font-weight: bold;
-                        border: 2px solid #000;
-                        padding: 1px;
-                        margin: 2px auto 4px auto;
-                        width: 160px;
-                    }
-                    .info-grid {
-                        display: flex;
-                        justify-content: space-between;
-                        margin-bottom: 4px;
-                        font-size: 10pt;
-                    }
-                    .complaint-box {
-                         border: 1px dashed #000; padding: 2px; margin: 2px 0; min-height: 18px; font-size: 10pt;
-                    }
-                    table { margin: 1px 0; font-size: 10pt; }
-                    
-                    /* ... */
-                    
-                    <!-- AREA TAMBAHAN MANUAL (Split 2 Kolom) -->
-                    <div style="margin-top: 3px; border: 1px solid #000; min-height: 2.1cm; display: flex;">
-                        <!-- ... -->
-                    </div>
-                    .info-column {
-                        width: 48%;
-                    }
-                    .info-row {
-                        display: flex;
-                    }
-                    .complaint-box {
-                        border: 1px dashed #000;
-                        padding: 3px;
-                        margin: 3px 0;
-                        min-height: 20px;
-                        font-size: 11pt;
-                    }
-                    table {
-                        width: 100%;
-                        table-layout: fixed; /* Agar lebar kolom konsisten antar tabel */
-                        border-collapse: collapse;
-                        margin: 2px 0;
-                        font-size: 10pt;
-                    }
-                    th {
-                        border-bottom: 2px solid #000;
-                        text-align: left;
-                    }
-                    td {
-                        padding: 1px 0;
-                    }
-                    .text-right { text-align: right; }
-                    .text-center { text-align: center; }
-                    .signature-section {
-                        display: flex;
-                        justify-content: space-between;
-                        margin-top: 5px;
-                        font-size: 11pt;
-                    }
-                    .signature-box {
-                        min-width: 150px;
-                        width: auto;
-                        text-align: center;
-                    }
-                    .signature-line {
-                        border-top: 1px solid #000;
-                        margin-top: 20px;
-                        padding-top: 2px;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="header-bengkel">${settings.workshopName || 'MUTIARA MOTOR 2'}</div>
-                <div class="header-phone">HP/WA: ${settings.workshopPhone || '-'}</div>
-                
-                <h1>PERINTAH KERJA</h1>
-                
-                <div class="queue-box">
-                    ANTRIAN #${queueItem.queueNumber}
-                </div>
-
-                <div class="info-grid">
-                    <div class="info-column">
-                        <div class="info-row"><div class="info-label">Tgl</div><div>: ${new Date(queueItem.date).toLocaleDateString('id-ID')} ${queueItem.entryTime}</div></div>
-                        <div class="info-row"><div class="info-label">Nama</div><div>: ${queueItem.customerName.substring(0, 20)}</div></div>
-                        <div class="info-row"><div class="info-label">No. HP</div><div>: ${queueItem.phoneNumber || '-'}</div></div>
-                    </div>
-                    <div class="info-column">
-                        <div class="info-row"><div class="info-label">Unit</div><div>: ${queueItem.plateNumber}</div></div>
-                        <div class="info-row"><div class="info-label">Tipe</div><div>: ${queueItem.bikeModel.substring(0, 20)}</div></div>
-                        <div class="info-row"><div class="info-label">Alamat</div><div>: ${queueItem.address ? queueItem.address.substring(0, 25) : '-'}</div></div>
-                    </div>
-                </div>
-
-                <div class="complaint-box">
-                    <strong>KELUHAN:</strong> ${queueItem.complaint || '-'}
-                </div>
-                
-                ${jasaItems.length > 0 ? `
-                <div style="margin-top: 3px; border-bottom: 1px solid #000; font-weight: bold;">JASA</div>
-                <table>
-                    ${jasaItems.map(item => `
-                    <tr>
-                        <td width="60%">${item.name}</td>
-                        <td width="10%" class="text-center">${item.q}</td>
-                        <td width="30%" class="text-right">Rp ${(item.price * item.q).toLocaleString()}</td>
-                    </tr>
-                    `).join('')}
-                </table>
-                ` : ''}
-
-                ${partItems.length > 0 ? `
-                <div style="margin-top: 8px; border-bottom: 1px solid #000; font-weight: bold;">PART</div>
-                <table>
-                    ${partItems.map(item => `
-                    <tr>
-                        <td width="60%">${item.name}</td>
-                        <td width="10%" class="text-center">${item.q}</td>
-                        <td width="30%" class="text-right">Rp ${(item.price * item.q).toLocaleString()}</td>
-                    </tr>
-                    `).join('')}
-                </table>
-                ` : ''}
-
-                <!-- TOTAL ESTIMASI -->
-                <div style="margin-top: 8px; padding-top: 3px; border-top: 2px solid #000; text-align: right; font-weight: bold; font-size: 10pt;">
-                    TOTAL ESTIMASI: Rp ${totalEstimasi.toLocaleString()}
-                </div>
-
-                <!-- AREA TAMBAHAN MANUAL (Split 2 Kolom) -->
-                <div style="margin-top: 3px; border: 1px solid #000; min-height: 2.1cm; display: flex;">
-                    <!-- Kolom Kiri: Jasa -->
-                    <div style="width: 50%; border-right: 1px solid #000; position: relative;">
-                        <span style="position: absolute; top: 2px; left: 2px; font-size: 10pt; font-weight: bold;">TAMBAHAN JASA (Manual):</span>
-                    </div>
-                    <!-- Kolom Kanan: Part -->
-                    <div style="width: 50%; position: relative;">
-                        <span style="position: absolute; top: 2px; left: 2px; font-size: 10pt; font-weight: bold;">TAMBAHAN PART (Manual):</span>
-                    </div>
-                </div>
-
-                <div class="signature-section">
-                    <div class="signature-box">
-                        <div style="font-size: 10pt; text-align: left;">
-                            <div>Kunjungan Terakhir:</div>
-                            <div style="font-weight: bold; margin-top: 3px;">
-                                ${queueItem.lastVisit
-                ? `<div>${new Date(queueItem.lastVisit).toLocaleDateString('id-ID')}</div>
-                                       ${queueItem.lastMechanic ? `<div style="margin-top: 2px; white-space: nowrap;">${queueItem.lastMechanic}</div>` : ''}`
-                : '-'}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="signature-box">
-                        <div>Mekanik</div>
-                        <div class="signature-line"></div>
-                    </div>
-                </div>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
-        printWindow.print();
+    // Function to execute print after preview
+    const executePrint = async () => {
+        if (!previewData) return;
+        try {
+            await api.printJob(previewData.text);
+            alert('✅ Print Job Terkirim ke Server!');
+            setPreviewText(null); // Close preview
+            setPreviewData(null);
+        } catch (e) {
+            alert('❌ Gagal ke Server: ' + e.message + '\nMencoba print lokal via Browser...');
+            setPreviewText(null);
+            setPreviewData(null);
+        }
     };
 
     const handleCancelPayment = async (service) => {
         if (confirm(`Batalkan pembayaran untuk ${service.plateNumber}? Status akan kembali ke Selesai.`)) {
-            await api.updateJob(service.id, { ...service, status: 'Done' });
+            // Updated: Set payment_date to null to remove from reports
+            await api.updateJob(service.id, {
+                ...service,
+                status: 'Done',
+                payment_date: null
+            });
             fetchData();
-            alert('Pembayaran dibatalkan. Unit kembali ke tab Selesai.');
         }
     };
 
     const handleRevertToProcess = async (service) => {
         if (confirm(`Kembalikan ${service.plateNumber} ke menu Proses?`)) {
-            await api.updateJob(service.id, { ...service, status: 'In Progress' });
+            await api.updateJob(service.id, {
+                ...service,
+                status: 'In Progress',
+                payment_date: null // Ensure payment date is cleared if reverting
+            });
             fetchData();
-            alert('Status dikembalikan ke Proses.');
+            setActiveTab('process');
         }
     };
 
@@ -516,13 +310,7 @@ export default function ServicePage() {
 
     // -- MAIN RENDER --
     return (
-        <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: 'calc(100vh - 5rem)', // Adjusted height to fit within main content padding without scrolling
-            overflow: 'hidden', // Prevent window scroll
-            position: 'relative'
-        }}>
+        <div className="service-page-container">
 
             {/* PAYMENT MODAL */}
             {selectedPaymentItem && (
@@ -570,11 +358,17 @@ export default function ServicePage() {
                                 </select>
                             </div>
 
+
                             {/* Total */}
                             <div style={{ textAlign: 'right', marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
                                 <span style={{ color: 'var(--text-muted)', marginRight: '1rem' }}>Total Pembayaran:</span>
                                 <span style={{ fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--success)' }}>
-                                    Rp {selectedPaymentItem.items.reduce((s, x) => s + (x.price * x.q), 0).toLocaleString()}
+                                    Rp {selectedPaymentItem.items.reduce((s, x) => {
+                                        // Item gratis tidak dihitung (customer bayar 0)
+                                        if (x.isFreeVoucher) return s;
+                                        // Item normal: (price - discount) * quantity
+                                        return s + ((x.price - (x.discount || 0)) * x.q);
+                                    }, 0).toLocaleString()}
                                 </span>
                             </div>
                         </div>
@@ -583,6 +377,51 @@ export default function ServicePage() {
                             <button className="btn btn-outline" onClick={() => setSelectedPaymentItem(null)}>Batal</button>
                             <button className="btn btn-success" onClick={handleConfirmPayment}>
                                 <DollarSign size={18} /> Bayar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* DEBUG PREVIEW OVERLAY */}
+            {previewText && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 9999,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '1rem'
+                }}>
+                    <div style={{
+                        backgroundColor: '#333', padding: '1rem', borderRadius: '8px',
+                        width: 'auto', maxWidth: '95vw', display: 'flex', flexDirection: 'column', alignItems: 'center'
+                    }}>
+                        <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', color: '#fff' }}>
+                            <h3 style={{ margin: 0 }}>Preview K2 (Half Page)</h3>
+                            <button onClick={() => setPreviewText(null)} style={{ border: 'none', background: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }}>&times;</button>
+                        </div>
+
+                        {/* Kertas K2 Simulation Area */}
+                        <div style={{
+                            width: '9.5in', // Physical width simulation
+                            maxWidth: '100%', // Responsive
+                            height: '5.5in', // Physical height simulation (K2)
+                            backgroundColor: '#fff', // Paper White
+                            color: '#000', // Ink Black
+                            padding: '0.2in', // Paper Margin
+                            fontFamily: '"Courier New", Courier, monospace',
+                            whiteSpace: 'pre',
+                            fontSize: '12px', // Adjustable for viewing
+                            overflow: 'auto',
+                            border: '1px solid #ccc',
+                            boxShadow: '0 0 10px rgba(0,0,0,0.5)'
+                        }}>
+                            {previewText}
+                        </div>
+
+                        <div style={{ marginTop: '1rem', width: '100%', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                            <button className="btn btn-outline" style={{ borderColor: '#fff', color: '#fff' }} onClick={() => setPreviewText(null)}>Batal</button>
+                            <button className="btn btn-primary" onClick={executePrint}>
+                                <Printer size={18} /> Cetak Sekarang ({previewData?.printer})
                             </button>
                         </div>
                     </div>
@@ -633,28 +472,28 @@ export default function ServicePage() {
                                 <div className="input-group" style={{ backgroundColor: 'var(--bg-hover)', padding: '1rem', borderRadius: 'var(--radius)' }}>
                                     <label style={{ color: 'var(--text-muted)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><DollarSign size={16} /> Estimasi Awal</label>
                                     <div style={{ marginTop: '0.5rem', fontWeight: 'bold' }}>
-                                        Rp {selectedQueueItem.items.reduce((s, x) => s + (x.price * x.q), 0).toLocaleString()}
+                                        Rp {selectedQueueItem.items.reduce((s, x) => s + ((x.price - (x.discount || 0)) * x.q), 0).toLocaleString()}
                                     </div>
                                 </div>
                             )}
                         </div>
 
-                        <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                        <div style={{ marginTop: '2rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
                             {/* Left: Destructive Actions */}
                             <button className="btn btn-outline" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => handleDeleteQueue(selectedQueueItem.id)}>
-                                <Trash2 size={18} /> Hapus
+                                <Trash2 size={18} /> <span className="hide-mobile">Hapus</span>
                             </button>
 
                             {/* Right: Primary Actions */}
-                            <div style={{ display: 'flex', gap: '1rem' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1 }}>
                                 <button className="btn btn-outline" onClick={() => handlePrintWorkOrder(selectedQueueItem)}>
-                                    <Printer size={18} /> Cetak
+                                    <Printer size={18} /> <span className="hide-mobile">Cetak</span>
                                 </button>
                                 <button className="btn btn-outline" onClick={() => handleEditQueue(selectedQueueItem)}>
-                                    <Edit size={18} /> Edit
+                                    <Edit size={18} /> <span className="hide-mobile">Edit</span>
                                 </button>
                                 <button className="btn btn-primary" onClick={() => handleStartWork(selectedQueueItem)}>
-                                    Lanjut Proses
+                                    Lanjut
                                 </button>
                             </div>
                         </div>
@@ -663,7 +502,7 @@ export default function ServicePage() {
             )}
 
             {/* Header with Global Filter */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexShrink: 0 }}>
+            <div className="service-header-wrapper">
                 <div>
                     <h1 style={{ fontSize: '1.8rem', fontWeight: 'bold' }}>Layanan Servis</h1>
                     <p style={{ color: 'var(--text-muted)' }}>Kelola antrian dan pengerjaan servis motor.</p>
@@ -673,7 +512,7 @@ export default function ServicePage() {
                         <button className="btn btn-outline" style={{ padding: '0.4rem' }} onClick={() => {
                             const d = new Date(filterDate);
                             d.setDate(d.getDate() - 1);
-                            setFilterDate(d.toISOString().split('T')[0]);
+                            setFilterDate(getLocalDate(d));
                         }}>
                             <ChevronLeft size={18} />
                         </button>
@@ -700,19 +539,19 @@ export default function ServicePage() {
                         <button className="btn btn-outline" style={{ padding: '0.4rem' }} onClick={() => {
                             const d = new Date(filterDate);
                             d.setDate(d.getDate() + 1);
-                            setFilterDate(d.toISOString().split('T')[0]);
+                            setFilterDate(getLocalDate(d));
                         }}>
                             <ChevronRight size={18} />
                         </button>
 
-                        {filterDate !== new Date().toISOString().split('T')[0] && (
-                            <button className="btn btn-primary" style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }} onClick={() => setFilterDate(new Date().toISOString().split('T')[0])}>
+                        {filterDate !== getLocalDate() && (
+                            <button className="btn btn-primary" style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }} onClick={() => setFilterDate(getLocalDate())}>
                                 Hari Ini
                             </button>
                         )}
                     </div>
                     <button className="btn btn-primary" onClick={() => { setEditingQueueId(null); setShowEntryForm(true); }}>
-                        <Plus size={18} /> Antrian Baru
+                        <Plus size={18} /> <span className="hide-mobile">Antrian Baru</span>
                     </button>
                 </div>
             </div>
@@ -745,7 +584,7 @@ export default function ServicePage() {
                     style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottom: 'none' }}
                     onClick={() => setActiveTab('paid')}
                 >
-                    Sudah Bayar
+                    Sudah Bayar ({queue.filter(i => i.status === 'Paid' && (i.payment_date || i.date) === filterDate).length})
                 </button>
             </div>
 
@@ -818,7 +657,12 @@ export default function ServicePage() {
                             <div key={item.id} className="card" onClick={() => setSelectedInvoiceItem(item)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}>
                                 <div>
                                     <h3>#{item.queueNumber} - {item.plateNumber} ({item.customerName})</h3>
-                                    <p className="text-muted">Total: Rp {item.items.reduce((s, x) => s + (x.price * x.q), 0).toLocaleString()}</p>
+                                    <p className="text-muted">Total: Rp {item.items.reduce((s, x) => {
+                                        // Item gratis tidak dihitung (customer bayar 0)
+                                        if (x.isFreeVoucher) return s;
+                                        // Item normal: (price - discount) * quantity
+                                        return s + ((x.price - (x.discount || 0)) * x.q);
+                                    }, 0).toLocaleString()}</p>
                                 </div>
                                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                                     <button className="btn btn-outline" style={{ padding: '0.5rem', color: 'var(--danger)', borderColor: 'var(--danger)' }} title="Batalkan Selesai & Kembali ke Proses" onClick={(e) => { e.stopPropagation(); handleRevertToProcess(item); }}>
@@ -833,30 +677,45 @@ export default function ServicePage() {
                     </div>
                 )}
 
-                {activeTab === 'paid' && (
-                    <div className="no-scrollbar" style={{ display: 'grid', gap: '1rem', overflowY: 'auto', flex: 1, paddingRight: '0.5rem' }}>
-                        {queue.filter(i => i.status === 'Paid' && i.date === filterDate).length === 0 && (
-                            <div className="card text-center" style={{ padding: '2rem' }}>
-                                <p className="text-muted">Tidak ada riwayat pembayaran pada tanggal {filterDate.split('-').reverse().join('/')}.</p>
-                            </div>
-                        )}
+                {activeTab === 'paid' && (() => {
+                    const paidItems = queue.filter(i => i.status === 'Paid' && (i.payment_date || i.date) === filterDate);
 
-                        {queue.filter(i => i.status === 'Paid' && i.date === filterDate).map((item) => (
-                            <div key={item.id} className="card" onClick={() => setSelectedInvoiceItem(item)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.8, cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}>
-                                <div>
-                                    <h3 style={{ textDecoration: 'line-through' }}>#{item.queueNumber} - {item.plateNumber}</h3>
-                                    <p className="text-muted">LUNAS - {item.customerName}</p>
+                    return (
+                        <div className="no-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', flex: 1, paddingRight: '0.5rem' }}>
+                            {paidItems.length === 0 ? (
+                                <div className="card text-center" style={{ padding: '2rem' }}>
+                                    <p className="text-muted">Tidak ada riwayat pembayaran pada tanggal {filterDate.split('-').reverse().join('/')}.</p>
                                 </div>
-                                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                    <div className="badge badge-success"><Check size={14} /> Selesai</div>
-                                    <button className="btn btn-outline" style={{ padding: '0.5rem', color: 'var(--danger)', borderColor: 'var(--danger)' }} title="Batalkan Bayar & Kembali ke Selesai" onClick={(e) => { e.stopPropagation(); handleCancelPayment(item); }}>
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                            ) : (
+                                paidItems.map((item) => {
+                                    const itemTotal = item.items.reduce((s, x) => {
+                                        if (x.isFreeVoucher) return s;
+                                        return s + ((x.price - (x.discount || 0)) * x.q);
+                                    }, 0);
+
+                                    return (
+                                        <div key={item.id} className="card" onClick={() => setSelectedInvoiceItem(item)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}>
+                                            <div>
+                                                <h3>#{item.queueNumber} - {item.plateNumber}</h3>
+                                                <p className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                    <span style={{ color: 'var(--success)', fontWeight: 'bold' }}>LUNAS</span>
+                                                    <span>• {item.customerName}</span>
+                                                    <span>• Rp {itemTotal.toLocaleString('id-ID')}</span>
+                                                </p>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                                <div className="badge badge-success"><Check size={14} /> Selesai</div>
+                                                <button className="btn btn-outline" style={{ padding: '0.5rem', color: 'var(--danger)', borderColor: 'var(--danger)' }} title="Batalkan Bayar & Kembali ke Selesai" onClick={(e) => { e.stopPropagation(); handleCancelPayment(item); }}>
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    );
+                })()}
             </div>
 
             {/* INVOICE MODAL - MOVED OUTSIDE TABS TO WORK FOR BOTH COMPLETED AND PAID */}

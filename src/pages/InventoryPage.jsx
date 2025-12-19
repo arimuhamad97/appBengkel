@@ -169,7 +169,7 @@ export default function InventoryPage({ user }) {
             )}
 
             <div style={{ marginBottom: '2rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <div className="service-header-wrapper">
                     <div>
                         <h1 style={{ fontSize: '1.8rem', fontWeight: 'bold', marginBottom: '0.25rem' }}>Persediaan Sparepart</h1>
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
@@ -182,7 +182,7 @@ export default function InventoryPage({ user }) {
 
                     {!isFrontdesk && (
                         <button className="btn btn-primary" onClick={() => setShowForm(true)}>
-                            <Plus size={18} /> STOK MASUK
+                            <Plus size={18} /> <span className="hide-mobile">STOK MASUK</span>
                         </button>
                     )}
                 </div>

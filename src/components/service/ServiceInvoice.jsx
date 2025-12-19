@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { X, Printer } from 'lucide-react';
 import { api } from '../../services/api';
+import { formatInvoice } from '../../utils/printHelpers';
 
 export default function ServiceInvoice({ service, onClose }) {
     const [mechanic, setMechanic] = useState(null);
@@ -27,15 +28,51 @@ export default function ServiceInvoice({ service, onClose }) {
         loadCommonData();
     }, [service.mechanicId]);
 
-    // Calculate separated totals
-    const grossService = service.items.filter(i => i.type === 'Service').reduce((sum, item) => sum + (item.price * item.q), 0);
-    const grossPart = service.items.filter(i => i.type === 'Part').reduce((sum, item) => sum + (item.price * item.q), 0);
-    const totalDiscount = service.items.reduce((sum, item) => sum + ((item.discount || 0) * item.q), 0);
+    // Calculate separated totals - item gratis tidak dihitung
+    const grossService = service.items.filter(i => i.type === 'Service').reduce((sum, item) => {
+        // Jika gratis, jangan hitung
+        if (item.isFreeVoucher) return sum;
+        return sum + (item.price * item.q);
+    }, 0);
+
+    const grossPart = service.items.filter(i => i.type === 'Part').reduce((sum, item) => {
+        // Jika gratis, jangan hitung
+        if (item.isFreeVoucher) return sum;
+        return sum + (item.price * item.q);
+    }, 0);
+
+    const totalDiscount = service.items.reduce((sum, item) => {
+        // Jangan hitung diskon untuk item gratis (sudah 0)
+        if (item.isFreeVoucher) return sum;
+        return sum + ((item.discount || 0) * item.q);
+    }, 0);
+
     const grandTotal = grossService + grossPart - totalDiscount;
 
     const invoiceRef = useRef();
 
-    const handlePrint = () => {
+    const handlePrint = async () => {
+        // Refresh settings
+        let currentSettings = settings;
+        try {
+            const fresh = await api.getSettings();
+            setSettings(fresh);
+            currentSettings = fresh;
+        } catch (e) { }
+
+        const targetPrinter = currentSettings.printer_name || 'EPSON';
+
+        if (confirm(`Cetak Invoice ke Printer Server (${targetPrinter})?`)) {
+            try {
+                const textContent = formatInvoice(service, currentSettings, mechanic ? mechanic.name : '-');
+                await api.printJob(textContent);
+                alert('✅ Invoice Terkirim ke Server!');
+                return;
+            } catch (e) {
+                alert('Note: Gagal ke Server (' + e.message + '), menggunakan Browser Print.');
+            }
+        }
+
         const printContent = invoiceRef.current.innerHTML;
         const originalContents = document.body.innerHTML;
 
@@ -64,10 +101,11 @@ export default function ServiceInvoice({ service, onClose }) {
             <div className="card" style={{ width: '800px', maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
 
                 {/* Header Actions */}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '1rem', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg-dark)' }}>
-                    <div style={{ display: 'flex', gap: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', padding: '1rem', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg-dark)' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Invoice Preview</h3>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                         <button className="btn btn-primary" onClick={handlePrint}>
-                            <Printer size={18} /> Cetak (Epson LX-310)
+                            <Printer size={18} /> <span className="hide-mobile">Cetak (LX-310)</span>
                         </button>
                         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                             <X size={24} />
@@ -197,15 +235,14 @@ export default function ServiceInvoice({ service, onClose }) {
                         <div className="meta-grid">
                             <div>
                                 <div>No. Inv : <strong>INV-{service.id}</strong></div>
-                                <div>Tanggal : {formatDate(service.date)}</div>
+                                <div>Tanggal : {formatDate(service.payment_date || service.date)}</div>
                             </div>
                             <div className="text-right">
-                                <div>Kpd Yth: <strong>{service.customerName.toUpperCase().substring(0, 20)}</strong></div>
-                                <div>{service.plateNumber} / {service.bikeModel.substring(0, 15)}</div>
+                                <div>Kpd Yth: <strong>{service.customerName.toUpperCase()}</strong></div>
+                                <div>{service.plateNumber} / {service.bikeModel}</div>
                             </div>
                         </div>
 
-                        {/* JASA */}
                         {service.items.filter(i => i.type === 'Service').length > 0 && (
                             <div>
                                 <div className="section-title">JASA</div>
@@ -214,11 +251,16 @@ export default function ServiceInvoice({ service, onClose }) {
                                         {service.items.filter(i => i.type === 'Service').map((item, idx) => (
                                             <React.Fragment key={idx}>
                                                 <tr>
-                                                    <td style={{ width: '55%' }}>{item.name}</td>
+                                                    <td style={{ width: '55%' }}>
+                                                        {item.name}
+                                                        {item.isFreeVoucher && <span style={{ marginLeft: '5px', fontSize: '9pt' }}>[KUPON GRATIS]</span>}
+                                                    </td>
                                                     <td style={{ width: '10%', textAlign: 'center' }}>{item.q}</td>
-                                                    <td style={{ width: '35%', textAlign: 'right' }}>{(item.price * item.q).toLocaleString()}</td>
+                                                    <td style={{ width: '35%', textAlign: 'right' }}>
+                                                        {item.isFreeVoucher ? '0' : (item.price * item.q).toLocaleString()}
+                                                    </td>
                                                 </tr>
-                                                {item.discount > 0 && (
+                                                {item.discount > 0 && !item.isFreeVoucher && (
                                                     <tr style={{ fontSize: '10pt' }}>
                                                         <td colSpan="2" style={{ paddingLeft: '10px', fontStyle: 'italic' }}>
                                                             Diskon {item.discountPercent ? `(${item.discountPercent}%)` : ''}
@@ -242,11 +284,16 @@ export default function ServiceInvoice({ service, onClose }) {
                                         {service.items.filter(i => i.type === 'Part').map((item, idx) => (
                                             <React.Fragment key={idx}>
                                                 <tr>
-                                                    <td style={{ width: '55%' }}>{item.name}</td>
+                                                    <td style={{ width: '55%' }}>
+                                                        {item.name}
+                                                        {item.isFreeVoucher && <span style={{ marginLeft: '5px', fontSize: '9pt' }}>[KUPON GRATIS]</span>}
+                                                    </td>
                                                     <td style={{ width: '10%', textAlign: 'center' }}>{item.q}</td>
-                                                    <td style={{ width: '35%', textAlign: 'right' }}>{(item.price * item.q).toLocaleString()}</td>
+                                                    <td style={{ width: '35%', textAlign: 'right' }}>
+                                                        {item.isFreeVoucher ? '0' : (item.price * item.q).toLocaleString()}
+                                                    </td>
                                                 </tr>
-                                                {item.discount > 0 && (
+                                                {item.discount > 0 && !item.isFreeVoucher && (
                                                     <tr style={{ fontSize: '10pt' }}>
                                                         <td colSpan="2" style={{ paddingLeft: '10px', fontStyle: 'italic' }}>
                                                             Diskon {item.discountPercent ? `(${item.discountPercent}%)` : ''}
@@ -265,16 +312,20 @@ export default function ServiceInvoice({ service, onClose }) {
                         <div className="total-section">
                             <table style={{ width: '100%' }}>
                                 <tbody>
-                                    <tr>
-                                        <td style={{ width: '60%' }}></td>
-                                        <td style={{ width: '20%', fontSize: '16pt' }}>Total Jasa</td>
-                                        <td className="text-right" style={{ width: '20%', fontSize: '16pt' }}>Rp {grossService.toLocaleString()}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style={{ width: '60%' }}></td>
-                                        <td style={{ width: '20%', fontSize: '16pt' }}>Total Part</td>
-                                        <td className="text-right" style={{ width: '20%', fontSize: '16pt' }}>Rp {grossPart.toLocaleString()}</td>
-                                    </tr>
+                                    {grossService > 0 && (
+                                        <tr>
+                                            <td style={{ width: '60%' }}></td>
+                                            <td style={{ width: '20%', fontSize: '16pt' }}>Total Jasa</td>
+                                            <td className="text-right" style={{ width: '20%', fontSize: '16pt' }}>Rp {grossService.toLocaleString()}</td>
+                                        </tr>
+                                    )}
+                                    {grossPart > 0 && (
+                                        <tr>
+                                            <td style={{ width: '60%' }}></td>
+                                            <td style={{ width: '20%', fontSize: '16pt' }}>Total Part</td>
+                                            <td className="text-right" style={{ width: '20%', fontSize: '16pt' }}>Rp {grossPart.toLocaleString()}</td>
+                                        </tr>
+                                    )}
                                     {totalDiscount > 0 && (
                                         <tr>
                                             <td style={{ width: '60%' }}></td>

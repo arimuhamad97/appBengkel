@@ -184,6 +184,13 @@ export function initDb() {
             }
         });
 
+        // Migration: Add payment_date column to queue
+        db.run(`ALTER TABLE queue ADD COLUMN payment_date TEXT`, (err) => {
+            if (err && !err.message.includes('duplicate column')) {
+                // Ignore if exists
+            }
+        });
+
         // Stock In Table (Riwayat Stok Masuk)
         db.run(`CREATE TABLE IF NOT EXISTS stock_in (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

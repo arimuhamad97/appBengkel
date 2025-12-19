@@ -3,8 +3,15 @@ import { Printer, DollarSign, Wrench, Package, Calendar, TrendingDown, Wallet } 
 import { api } from '../../services/api';
 
 export default function RevenueReport() {
+    // Helper to formatting local date YYYY-MM-DD safely
+    const toLocalYMD = (d = new Date()) => {
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    };
+
     const [period, setPeriod] = useState('daily'); // daily, weekly, monthly
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState(toLocalYMD());
     const [data, setData] = useState({
         services: [],
         sales: [],
@@ -70,14 +77,15 @@ export default function RevenueReport() {
                 api.getExpenses({ startDate, endDate })
             ]);
 
-            // Filter by date range
+            // Filter by date range - HANYA yang sudah dibayar (Paid)
+            // Gunakan payment_date untuk filtering (tanggal pembayaran), fallback ke date jika payment_date kosong
             const servicesInRange = queue.filter(q => {
-                const qDate = new Date(q.date).toISOString().split('T')[0];
-                return qDate >= startDate && qDate <= endDate && (q.status === 'Done' || q.status === 'Paid');
+                const qDate = (q.payment_date || q.date || '').split('T')[0].split(' ')[0];
+                return qDate >= startDate && qDate <= endDate && q.status === 'Paid';
             });
 
             const salesInRange = sales.filter(s => {
-                const sDate = new Date(s.date).toISOString().split('T')[0];
+                const sDate = s.date ? s.date.split('T')[0].split(' ')[0] : '';
                 return sDate >= startDate && sDate <= endDate;
             });
 
@@ -86,7 +94,17 @@ export default function RevenueReport() {
                 try {
                     const items = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
                     if (!Array.isArray(items)) return sum;
-                    const total = items.reduce((itemSum, item) => itemSum + ((item.price || 0) * (item.q || 0)), 0);
+                    const total = items.reduce((itemSum, item) => {
+                        // Untuk item dengan kupon gratis, gunakan originalPrice untuk pendapatan
+                        if (item.isFreeVoucher && item.originalPrice) {
+                            return itemSum + (item.originalPrice * (item.q || 0));
+                        }
+                        // Untuk item normal, hitung: (price - discount) * quantity
+                        const price = item.price || 0;
+                        const discount = item.discount || 0;
+                        const quantity = item.q || 0;
+                        return itemSum + ((price - discount) * quantity);
+                    }, 0);
                     return sum + total;
                 } catch (e) {
                     console.error('Failed to parse service items:', e);
@@ -128,10 +146,20 @@ export default function RevenueReport() {
                         items.forEach(item => {
                             // Check for both 'part' and 'Part' (case-insensitive)
                             if (item.type && item.type.toLowerCase() === 'part') {
+                                // Hitung total_price: untuk item gratis gunakan originalPrice, untuk normal gunakan (price - discount)
+                                let totalPrice;
+                                if (item.isFreeVoucher && item.originalPrice) {
+                                    totalPrice = item.originalPrice * (item.q || 0);
+                                } else {
+                                    const price = item.price || 0;
+                                    const discount = item.discount || 0;
+                                    totalPrice = (price - discount) * (item.q || 0);
+                                }
+
                                 serviceSales.push({
                                     date: service.date,
                                     items: JSON.stringify([item]),
-                                    total_price: (item.price || 0) * (item.q || 0),
+                                    total_price: totalPrice,
                                     source: 'service',
                                     queueNumber: service.queueNumber,
                                     customerName: service.customerName
@@ -187,7 +215,17 @@ export default function RevenueReport() {
                     itemMap[name] = { name, qty: 0, total: 0 };
                 }
                 itemMap[name].qty += (item.q || 0);
-                itemMap[name].total += ((item.price || 0) * (item.q || 0));
+
+                // Hitung total: untuk item gratis gunakan originalPrice, untuk normal gunakan (price - discount)
+                let itemTotal;
+                if (item.isFreeVoucher && item.originalPrice) {
+                    itemTotal = item.originalPrice * (item.q || 0);
+                } else {
+                    const price = item.price || 0;
+                    const discount = item.discount || 0;
+                    itemTotal = (price - discount) * (item.q || 0);
+                }
+                itemMap[name].total += itemTotal;
             });
         });
         return Object.values(itemMap).sort((a, b) => b.qty - a.qty);
@@ -266,7 +304,12 @@ export default function RevenueReport() {
                     <tbody>
                         ${data.services.map((s, i) => {
             const items = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-            const total = items.reduce((sum, item) => sum + (item.price * item.q), 0);
+            const total = items.reduce((sum, item) => {
+                // Item gratis tidak dihitung (customer bayar 0)
+                if (item.isFreeVoucher) return sum;
+                // Item normal: (price - discount) * quantity
+                return sum + ((item.price - (item.discount || 0)) * item.q);
+            }, 0);
             return `
                                 <tr>
                                     <td>${i + 1}</td>
@@ -282,7 +325,12 @@ export default function RevenueReport() {
                             <td colspan="5">TOTAL SERVIS</td>
                             <td>Rp ${data.services.reduce((sum, s) => {
             const items = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-            return sum + items.reduce((itemSum, item) => itemSum + (item.price * item.q), 0);
+            return sum + items.reduce((itemSum, item) => {
+                // Item gratis tidak dihitung
+                if (item.isFreeVoucher) return itemSum;
+                // Item normal: (price - discount) * quantity
+                return itemSum + ((item.price - (item.discount || 0)) * item.q);
+            }, 0);
         }, 0).toLocaleString('id-ID')}</td>
                         </tr>
                     </tbody>
@@ -724,7 +772,15 @@ export default function RevenueReport() {
                                     try {
                                         items = typeof service.items === 'string' ? JSON.parse(service.items) : service.items;
                                         if (!Array.isArray(items)) items = [];
-                                        total = items.reduce((sum, item) => sum + ((item.price || 0) * (item.q || 0)), 0);
+                                        total = items.reduce((sum, item) => {
+                                            // Item gratis tidak dihitung (customer bayar 0)
+                                            if (item.isFreeVoucher) return sum;
+                                            // Item normal: (price - discount) * quantity
+                                            const price = item.price || 0;
+                                            const discount = item.discount || 0;
+                                            const quantity = item.q || 0;
+                                            return sum + ((price - discount) * quantity);
+                                        }, 0);
                                     } catch (e) {
                                         console.error('Failed to parse service items:', e);
                                     }

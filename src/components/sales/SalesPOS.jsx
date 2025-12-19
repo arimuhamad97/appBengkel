@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, ShoppingCart, Save, Search, Printer } from 'lucide-react';
+import { Plus, Trash2, ShoppingCart, Save, Search, Printer, Calendar } from 'lucide-react';
 import { api } from '../../services/api';
 
 export default function SalesPOS({ onSave, onCancel }) {
+    // Helper for local date
+    const getLocalDate = () => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
     const [items, setItems] = useState([]);
     const [buyerName, setBuyerName] = useState('Umum');
+    const [saleDate, setSaleDate] = useState(getLocalDate());
     const [selectedPartId, setSelectedPartId] = useState('');
     const [inventory, setInventory] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -175,12 +185,8 @@ export default function SalesPOS({ onSave, onCancel }) {
                 buyerName,
                 items,
                 total: calculateTotal(),
-                date: new Date().toISOString().split('T')[0]
+                date: saleDate
             };
-
-            console.log('=== SENDING SALE DATA ===');
-            console.log('Items:', items);
-            console.log('Sale Data:', saleData);
 
             await api.createSale(saleData);
             setShowPreview(false);
@@ -197,7 +203,7 @@ export default function SalesPOS({ onSave, onCancel }) {
                 buyerName,
                 items,
                 total: calculateTotal(),
-                date: new Date().toISOString().split('T')[0]
+                date: saleDate
             };
 
             await api.createSale(saleData);
@@ -221,8 +227,39 @@ export default function SalesPOS({ onSave, onCancel }) {
         <div className="card" style={{ position: 'relative' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Kasir Penjualan</h2>
-                <div style={{ padding: '0.5rem 1rem', backgroundColor: 'var(--bg-hover)', borderRadius: 'var(--radius)' }}>
-                    {new Date().toLocaleDateString()}
+                <div
+                    style={{
+                        display: 'flex',
+                        gap: '1rem',
+                        alignItems: 'center',
+                        backgroundColor: 'var(--bg-hover)',
+                        padding: '0.5rem 1rem',
+                        borderRadius: 'var(--radius)',
+                        cursor: 'pointer',
+                        position: 'relative'
+                    }}
+                    onClick={() => document.getElementById('pos-date-input').showPicker()}
+                >
+                    <Calendar size={18} style={{ color: 'var(--primary)' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1 }}>Tanggal Transaksi</span>
+                        <span style={{ fontWeight: '600' }}>
+                            {new Date(saleDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </span>
+                    </div>
+                    <input
+                        id="pos-date-input"
+                        type="date"
+                        value={saleDate}
+                        onChange={(e) => setSaleDate(e.target.value)}
+                        style={{
+                            position: 'absolute',
+                            opacity: 0,
+                            width: 0,
+                            height: 0,
+                            pointerEvents: 'none'
+                        }}
+                    />
                 </div>
             </div>
 

@@ -39,12 +39,22 @@ export default function ServiceSalesReport() {
                                 const group = item.group_type || 'Lainnya';
                                 groupSet.add(group);
 
+                                // Hitung revenue: untuk item gratis gunakan originalPrice, untuk normal gunakan (price - discount)
+                                let revenue;
+                                if (item.isFreeVoucher && item.originalPrice) {
+                                    revenue = item.originalPrice * (item.q || 1);
+                                } else {
+                                    const price = item.price || 0;
+                                    const discount = item.discount || 0;
+                                    revenue = (price - discount) * (item.q || 1);
+                                }
+
                                 allServices.push({
                                     name: item.name,
                                     group: group,
                                     price: item.price || 0,
                                     qty: item.q || 1,
-                                    revenue: (item.price || 0) * (item.q || 1),
+                                    revenue: revenue,
                                     queueNumber: service.queueNumber,
                                     customerName: service.customerName,
                                     date: service.date
@@ -63,7 +73,7 @@ export default function ServiceSalesReport() {
             // Filter by group
             const filteredByGroup = selectedGroup === 'all'
                 ? allServices
-                : allServices.filter(s => s.group === selectedGroup);
+                : allServices.filter(s => s.group?.toLowerCase() === selectedGroup.toLowerCase());
 
             // Group by service name
             const grouped = filteredByGroup.reduce((acc, svc) => {

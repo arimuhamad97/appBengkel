@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, X, Bike, User, FileText, Search, Plus, Trash2, Wrench, History } from 'lucide-react';
+import { Save, X, Bike, User, FileText, Search, Plus, Trash2, Wrench, History, Minus } from 'lucide-react';
 import { api } from '../../services/api';
 import NewCustomerModal from './NewCustomerModal';
 import ServiceHistoryModal from './ServiceHistoryModal';
@@ -11,7 +11,16 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
     const [isDataLoaded, setIsDataLoaded] = useState(false); // Flag untuk mencegah reload data
     const hasLoadedInitialData = useRef(false); // Track apakah initial data sudah pernah di-load
 
+    // Helper for robust local date (YYYY-MM-DD)
+    const getLocalDate = (d = new Date()) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
     const [formData, setFormData] = useState({
+        date: getLocalDate(),
         plateNumber: '',
         customerName: '',
         address: '',
@@ -77,12 +86,11 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
 
     // -- Init Data for Edit Mode --
     useEffect(() => {
-        // Hanya load jika ada initialData DAN belum pernah di-load sebelumnya
         if (initialData && !hasLoadedInitialData.current) {
-            hasLoadedInitialData.current = true; // Tandai bahwa data sudah di-load
+            hasLoadedInitialData.current = true;
 
-            // Set initial form data dari queue
             setFormData({
+                date: initialData.date || getLocalDate(),
                 plateNumber: initialData.plateNumber || '',
                 customerName: initialData.customerName || '',
                 address: initialData.address || '',
@@ -96,25 +104,17 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                 complaint: initialData.complaint || ''
             });
 
-            // Sync bike search term
             setBikeSearchTerm(initialData.bikeModel || '');
-
-            console.log('[DEBUG] Initial data loaded:', {
-                kilometer: initialData.kilometer,
-                plateNumber: initialData.plateNumber
-            });
 
             if (initialData.items && initialData.items.length > 0) {
                 setItems(initialData.items);
             }
 
-            // Load data terbaru dari customers table (hanya sekali)
             const loadLatestCustomerData = async () => {
                 if (initialData.plateNumber) {
                     try {
                         const customerData = await api.getCustomerByPlate(initialData.plateNumber);
                         if (customerData) {
-                            // Update form dengan data terbaru dari customers table
                             setFormData(prev => ({
                                 ...prev,
                                 customerName: customerData.customerName || prev.customerName,
@@ -127,12 +127,9 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                                 year: customerData.year || prev.year,
                                 kilometer: customerData.kilometer || prev.kilometer
                             }));
-                            // Sync bike search term untuk filter
                             if (customerData.bikeModel) {
                                 setBikeSearchTerm(customerData.bikeModel);
                             }
-                            console.log('[DEBUG] Loaded latest customer data for edit mode');
-                            console.log('[DEBUG] Customer kilometer:', customerData.kilometer);
                         }
                     } catch (error) {
                         console.error('Failed to load latest customer data:', error);
@@ -141,7 +138,7 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
             };
 
             loadLatestCustomerData();
-            setIsDataLoaded(true); // Set flag karena data sudah di-load
+            setIsDataLoaded(true);
         }
     }, [initialData]);
 
@@ -149,21 +146,53 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
         return items.reduce((sum, item) => sum + ((item.price - (item.discount || 0)) * item.q), 0);
     };
 
+    const isASSService = (groupType) => {
+        if (!groupType) return false;
+        const group = groupType.toUpperCase().trim();
+        return group === 'ASS I' || group === 'ASS II' || group === 'ASS III' || group === 'ASS IV';
+    };
+
     const handleAddService = () => {
         if (!selectedServiceId) return;
         const serv = servicesList.find(s => s.id === parseInt(selectedServiceId));
         if (serv) {
+            const isFree = isASSService(serv.group_type);
+
             const newItem = {
                 type: 'Service',
                 name: serv.name,
                 price: serv.price,
                 q: 1,
                 id: serv.id,
-                discount: 0,
-                discountPercent: 0
+                discount: isFree ? serv.price : 0,
+                discountPercent: isFree ? 100 : 0,
+                isFreeVoucher: isFree,
+                originalPrice: serv.price,
+                group_type: serv.group_type
             };
-            setItems([...items, newItem]);
+
+            const newItems = [...items, newItem];
+
+            if (serv.group_type && serv.group_type.toUpperCase().trim() === 'ASS I') {
+                const updatedItems = newItems.map(item => {
+                    if (item.type === 'Part' && item.category && item.category.toUpperCase().trim() === 'OLI' && !item.isFreeVoucher) {
+                        return {
+                            ...item,
+                            isFreeVoucher: true,
+                            originalPrice: item.originalPrice || item.price,
+                            discount: item.price,
+                            discountPercent: 100
+                        };
+                    }
+                    return item;
+                });
+                setItems(updatedItems);
+            } else {
+                setItems(newItems);
+            }
+
             setSelectedServiceId('');
+            setServiceSearch('');
         }
     };
 
@@ -177,40 +206,83 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                 return;
             }
 
+            const hasASSI = items.some(item =>
+                item.type === 'Service' &&
+                item.group_type &&
+                item.group_type.toUpperCase().trim() === 'ASS I'
+            );
+
+            const isOil = part.category && part.category.toUpperCase().trim() === 'OLI';
+            const isFree = hasASSI && isOil;
+
             const newItem = {
                 type: 'Part',
                 name: part.name,
                 price: part.price,
                 q: 1,
                 id: part.id,
-                stock: part.stock, // Simpan info stok max
-                discount: 0,
-                discountPercent: 0
+                stock: part.stock,
+                discount: isFree ? part.price : 0,
+                discountPercent: isFree ? 100 : 0,
+                isFreeVoucher: isFree,
+                originalPrice: part.price,
+                category: part.category
             };
             setItems([...items, newItem]);
             setSelectedPartId('');
+            setPartSearch('');
         }
     };
 
     const handleRemoveItem = (index) => {
+        const itemToRemove = items[index];
         const newItems = [...items];
         newItems.splice(index, 1);
+
+        const removedIsASSI = itemToRemove.type === 'Service' &&
+            itemToRemove.group_type &&
+            itemToRemove.group_type.toUpperCase().trim() === 'ASS I';
+
+        if (removedIsASSI) {
+            const stillHasASSI = newItems.some(item =>
+                item.type === 'Service' &&
+                item.group_type &&
+                item.group_type.toUpperCase().trim() === 'ASS I'
+            );
+
+            if (!stillHasASSI) {
+                const updatedItems = newItems.map(item => {
+                    if (item.type === 'Part' && item.category && item.category.toUpperCase().trim() === 'OLI' && item.isFreeVoucher) {
+                        return {
+                            ...item,
+                            isFreeVoucher: false,
+                            discount: 0,
+                            discountPercent: 0
+                        };
+                    }
+                    return item;
+                });
+                setItems(updatedItems);
+                return;
+            }
+        }
+
         setItems(newItems);
     };
 
     const handleUpdateDiscount = (index, value, mode = 'percent') => {
+        const normalizedValue = typeof value === 'string' ? value.replace(',', '.') : value;
         const newItems = [...items];
         const item = newItems[index];
 
         if (mode === 'percent') {
-            const percent = Math.min(100, Math.max(0, Number(value)));
+            const percent = Math.min(100, Math.max(0, Number(normalizedValue)));
             item.discountPercent = percent;
             item.discount = Math.floor((item.price * percent) / 100);
         } else {
-            const nominal = Number(value);
+            const nominal = Number(normalizedValue);
             item.discount = nominal;
             if (item.price > 0) {
-                // Hitung persen, max 2 desimal
                 item.discountPercent = parseFloat(((nominal / item.price) * 100).toFixed(2));
             }
         }
@@ -218,21 +290,20 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
     };
 
     const handleUpdateQuantity = (index, value) => {
-        const newItems = [...items];
-        const item = newItems[index];
+        const itemToCheck = items[index];
         const newQty = Math.max(1, Number(value));
 
-        // Validasi Stok untuk Part
-        if (item.type === 'Part') {
-            // Cek stok asli dari daftar parts atau property stock di item
-            if (newQty > (item.stock || 0)) {
-                alert(`Stok tidak cukup! Sisa stok: ${item.stock || 0}`);
+        if (itemToCheck.type === 'Part') {
+            if (newQty > (itemToCheck.stock || 0)) {
+                alert(`Stok tidak cukup! Sisa stok: ${itemToCheck.stock || 0}`);
                 return;
             }
         }
 
-        item.q = newQty;
-        setItems(newItems);
+        // Immutable update to prevent side effects on shared references
+        setItems(items.map((item, i) =>
+            i === index ? { ...item, q: newQty } : item
+        ));
     };
 
     const handleUpdatePrice = (index, value) => {
@@ -240,7 +311,6 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
         const newItems = [...items];
         newItems[index].price = price;
 
-        // Recalculate discount if percent exists
         if (newItems[index].discountPercent !== undefined) {
             newItems[index].discount = Math.floor((price * newItems[index].discountPercent) / 100);
         }
@@ -250,19 +320,11 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
 
     const handleChange = (e) => {
         let { name, value } = e.target;
+        if (name === 'plateNumber') value = value.toUpperCase();
 
-        // Force Uppercase for Plate Number
-        if (name === 'plateNumber') {
-            value = value.toUpperCase();
-        }
-
-        // Jika user mengganti plat nomor, reset flag dan clear data kendaraan
         if (name === 'plateNumber' && value !== formData.plateNumber) {
-            setIsDataLoaded(false); // Reset flag agar bisa load data baru
-
-            // Clear data kendaraan dan pelanggan jika plat nomor berubah
+            setIsDataLoaded(false);
             if (formData.plateNumber && value.length < formData.plateNumber.length) {
-                // User sedang menghapus karakter - clear semua data
                 setFormData({
                     plateNumber: value,
                     customerName: '',
@@ -274,13 +336,12 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                     color: '',
                     year: '',
                     kilometer: '',
-                    complaint: formData.complaint // Keep complaint
+                    complaint: formData.complaint
                 });
                 setBikeSearchTerm('');
                 return;
             }
         }
-
         setFormData({ ...formData, [name]: value });
     };
 
@@ -296,51 +357,22 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
         setBikeSearchTerm(bikeDisplay);
         setShowBikeDropdown(false);
 
-        // Auto-save customer data setelah pilih bike type
         if (formData.plateNumber && formData.customerName) {
             try {
                 await api.updateCustomer({
-                    plateNumber: formData.plateNumber,
-                    customerName: formData.customerName,
-                    bikeModel: bikeDisplay,
-                    engineNumber: formData.engineNumber,
-                    frameNumber: formData.frameNumber,
-                    year: formData.year,
-                    color: formData.color,
-                    phoneNumber: formData.phoneNumber,
-                    address: formData.address,
-                    kilometer: formData.kilometer
+                    ...formData,
+                    bikeModel: bikeDisplay
                 });
-                console.log('Customer bike type updated:', bikeDisplay);
             } catch (error) {
                 console.error('Failed to update bike type:', error);
             }
         }
     };
 
-    // Auto-update customer data when form changes
     const handleCustomerDataBlur = async () => {
-        // Only update if we have minimum required data
         if (!formData.plateNumber || !formData.customerName) return;
-
-        const customerData = {
-            plateNumber: formData.plateNumber,
-            customerName: formData.customerName,
-            bikeModel: formData.bikeModel,
-            engineNumber: formData.engineNumber,
-            frameNumber: formData.frameNumber,
-            year: formData.year,
-            color: formData.color,
-            phoneNumber: formData.phoneNumber,
-            address: formData.address,
-            kilometer: formData.kilometer
-        };
-
-        console.log('Saving customer data:', customerData);
-
         try {
-            await api.updateCustomer(customerData);
-            console.log('Customer data auto-saved successfully');
+            await api.updateCustomer(formData);
         } catch (error) {
             console.error('Failed to auto-save customer data:', error);
         }
@@ -348,28 +380,18 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
 
     const checkDb = async (plate) => {
         if (!plate || plate.length < 3) return;
-        if (isDataLoaded) return; // Jangan reload jika data sudah pernah di-load
+        if (isDataLoaded) return;
 
         try {
             const found = await api.getCustomerByPlate(plate);
             if (found) {
-                // Data ditemukan - isi otomatis
                 setFormData(prev => ({
                     ...prev,
-                    customerName: found.customerName || '',
-                    address: found.address || '',
-                    phoneNumber: found.phoneNumber || '',
-                    bikeModel: found.bikeModel || '',
-                    frameNumber: found.frameNumber || '',
-                    engineNumber: found.engineNumber || '',
-                    color: found.color || '',
-                    year: found.year || '',
-                    kilometer: found.kilometer || ''
+                    ...found
                 }));
-                setBikeSearchTerm(found.bikeModel || ''); // Sync bike search term
-                setIsDataLoaded(true); // Set flag bahwa data sudah di-load
+                setBikeSearchTerm(found.bikeModel || '');
+                setIsDataLoaded(true);
             } else {
-                // Data tidak ditemukan - tampilkan modal
                 setTempPlateNumber(plate);
                 setShowBikeDropdown(false);
                 setShowNewCustomerModal(true);
@@ -387,16 +409,12 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
 
     const handleSaveNewCustomer = async (customerData) => {
         try {
-            // Simpan ke database customers
             await api.createCustomer(customerData);
-
-            // Isi form dengan data dari modal
             setFormData(prev => ({
                 ...prev,
                 ...customerData
             }));
-
-            setIsDataLoaded(true); // Set flag bahwa data sudah di-load
+            setIsDataLoaded(true);
             setShowNewCustomerModal(false);
         } catch (error) {
             console.error("Failed to save customer", error);
@@ -404,97 +422,106 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
         }
     };
 
-
-
     const handleSubmit = async (e) => {
         e.preventDefault();
-
-        // Validasi field wajib
         if (!formData.plateNumber || !formData.customerName || !formData.bikeModel) {
             alert('Mohon lengkapi Nopol, Nama, dan Tipe Motor.');
             return;
         }
 
-        // Cek apakah plat nomor sudah ada di antrian aktif (hanya untuk pendaftaran baru, bukan edit)
         if (!initialData) {
             try {
                 const checkResult = await api.checkActiveQueue(formData.plateNumber);
-
                 if (checkResult.exists) {
-                    alert(
-                        `Plat nomor ${formData.plateNumber} sudah ada di antrian!\n\n` +
-                        `Nomor Antrian: #${checkResult.queueNumber}\n` +
-                        `Tanggal: ${checkResult.date}\n` +
-                        `Status: ${checkResult.status}\n` +
-                        `Tipe Servis: ${checkResult.serviceType}\n\n` +
-                        `Mohon tunggu hingga servis selesai sebelum mendaftar lagi.`
-                    );
+                    alert(`Plat nomor ${formData.plateNumber} sudah ada di antrian!`);
                     return;
                 }
             } catch (error) {
                 console.error('Failed to check active queue:', error);
-                // Lanjutkan jika gagal cek (fail-safe)
             }
         }
-
-        // Include items in result
         onSave({ ...formData, items });
     };
 
-    // Helper to render table rows with discount input
     const renderItemRow = (item, idx) => (
         <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-            <td style={{ padding: '0.25rem' }}>{item.name}</td>
-            <td style={{ padding: '0.25rem', textAlign: 'right', width: '120px' }}>
+            <td style={{ padding: '0.5rem 0.25rem' }}>
+                <div style={{ fontWeight: '500', fontSize: '0.9rem' }}>{item.name}</div>
+                {item.isFreeVoucher && (
+                    <span style={{
+                        marginTop: '0.25rem',
+                        display: 'inline-block',
+                        padding: '0.1rem 0.4rem',
+                        backgroundColor: '#10b981',
+                        color: 'white',
+                        borderRadius: '4px',
+                        fontSize: '0.65rem',
+                        fontWeight: 'bold'
+                    }}>
+                        GRATIS
+                    </span>
+                )}
+            </td>
+            <td style={{ padding: '0.25rem', textAlign: 'right', minWidth: '100px' }}>
                 <input
                     type="number"
                     className="input"
-                    style={{ padding: '0.1rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
+                    style={{ padding: '0.25rem 4px', fontSize: '0.85rem', textAlign: 'right', width: '100%' }}
                     value={item.price}
                     onChange={(e) => handleUpdatePrice(idx, e.target.value)}
+                    disabled={item.isFreeVoucher}
                 />
             </td>
             <td style={{ padding: '0.25rem', textAlign: 'center' }}>
-                <input
-                    type="number"
-                    min="1"
-                    className="input"
-                    style={{ padding: '0.1rem', fontSize: '0.8rem', textAlign: 'center', width: '40px' }}
-                    value={item.q}
-                    onChange={(e) => handleUpdateQuantity(idx, e.target.value)}
-                />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                    <button type="button" className="btn btn-outline" style={{ padding: '0 6px', height: '30px', minWidth: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => handleUpdateQuantity(idx, Math.max(1, parseInt(item.q || 0) - 1))}>
+                        <Minus size={14} />
+                    </button>
+                    <input
+                        type="number"
+                        min="1"
+                        className="input"
+                        style={{ padding: '0.25rem', fontSize: '0.9rem', textAlign: 'center', width: '45px', margin: 0 }}
+                        value={item.q}
+                        onChange={(e) => handleUpdateQuantity(idx, e.target.value)}
+                    />
+                    <button type="button" className="btn btn-outline" style={{ padding: '0 6px', height: '30px', minWidth: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => handleUpdateQuantity(idx, parseInt(item.q || 0) + 1)}>
+                        <Plus size={14} />
+                    </button>
+                </div>
             </td>
             <td style={{ padding: '0.25rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
                     <div style={{ position: 'relative', width: '50px' }}>
                         <input
-                            type="number"
+                            type="text"
                             className="input"
-                            style={{ padding: '0.2rem 14px 0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
+                            style={{ padding: '1px 12px 1px 2px', fontSize: '0.75rem', textAlign: 'right', width: '100%', height: '22px' }}
                             placeholder="0"
-                            min="0"
-                            max="100"
                             value={item.discountPercent !== undefined ? item.discountPercent : ''}
                             onChange={(e) => handleUpdateDiscount(idx, e.target.value, 'percent')}
+                            disabled={item.isFreeVoucher}
+                            inputMode="decimal"
                         />
-                        <span style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>%</span>
+                        <span style={{ position: 'absolute', right: '2px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: '#888' }}>%</span>
                     </div>
                     <input
                         type="number"
                         className="input"
-                        style={{ padding: '0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '80px' }}
+                        style={{ padding: '1px 2px', fontSize: '0.75rem', textAlign: 'right', width: '70px', height: '22px' }}
                         placeholder="Rp"
-                        value={item.discount || ''}
+                        value={item.discount !== undefined ? item.discount : ''}
                         onChange={(e) => handleUpdateDiscount(idx, e.target.value, 'nominal')}
+                        disabled={item.isFreeVoucher}
                     />
                 </div>
             </td>
-            <td style={{ padding: '0.25rem', textAlign: 'right', fontWeight: 'bold' }}>
+            <td style={{ padding: '0.25rem', textAlign: 'right', fontWeight: 'bold', fontSize: '0.9rem' }}>
                 Rp {((item.price - (item.discount || 0)) * item.q).toLocaleString()}
             </td>
             <td style={{ padding: '0.25rem', textAlign: 'right', width: '20px' }}>
-                <button type="button" onClick={() => handleRemoveItem(idx)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}>
-                    <X size={14} />
+                <button type="button" onClick={() => handleRemoveItem(idx)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '0.25rem' }}>
+                    <X size={18} />
                 </button>
             </td>
         </tr>
@@ -541,16 +568,26 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                     </div>
                 </div>
 
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
                     {/* --- TOP SECTION: DATA INPUT --- */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '2rem' }}>
+                    <div className="grid-responsive-2" style={{ gap: '1.5rem' }}>
                         {/* Vehicle Data */}
                         <div>
                             <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)' }}>
                                 <Bike size={18} /> Data Kendaraan
                             </h3>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div className="input-group">
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Tgl. Daftar <span style={{ color: 'var(--danger)' }}>*</span></label>
+                                    <input
+                                        type="date"
+                                        name="date"
+                                        className="input"
+                                        value={formData.date}
+                                        onChange={handleChange}
+                                    />
+                                </div>
                                 <div className="input-group">
                                     <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>No. Polisi <span style={{ color: 'var(--danger)' }}>*</span></label>
                                     <div style={{ position: 'relative' }}>
@@ -567,86 +604,59 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                                         <Search size={16} style={{ position: 'absolute', right: '10px', top: '12px', color: 'var(--text-muted)' }} />
                                     </div>
                                 </div>
-                                <div className="input-group" style={{ position: 'relative' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Type Motor <span style={{ color: 'var(--danger)' }}>*</span></label>
-                                    <div style={{ position: 'relative' }}>
-                                        <input
-                                            type="text"
-                                            className="input"
-                                            placeholder="Cari type motor..."
-                                            value={bikeSearchTerm || formData.bikeModel}
-                                            onChange={(e) => handleBikeSearch(e.target.value)}
-                                            onFocus={() => setShowBikeDropdown(true)}
-                                            style={{ paddingRight: '2rem' }}
-                                        />
-                                        <Search size={16} style={{ position: 'absolute', right: '10px', top: '12px', color: 'var(--text-muted)' }} />
-                                    </div>
+                            </div>
+                            <div className="input-group" style={{ position: 'relative', marginTop: '1rem' }}>
+                                <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Type Motor <span style={{ color: 'var(--danger)' }}>*</span></label>
+                                <div style={{ position: 'relative' }}>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        placeholder="Cari type motor..."
+                                        value={bikeSearchTerm || formData.bikeModel}
+                                        onChange={(e) => handleBikeSearch(e.target.value)}
+                                        onFocus={() => setShowBikeDropdown(true)}
+                                        style={{ paddingRight: '2rem' }}
+                                    />
+                                    <Search size={16} style={{ position: 'absolute', right: '10px', top: '12px', color: 'var(--text-muted)' }} />
+                                </div>
 
-                                    {showBikeDropdown && filteredBikeTypes.length > 0 && (
-                                        <div style={{
-                                            position: 'absolute',
-                                            top: '100%',
-                                            left: 0,
-                                            right: 0,
-                                            backgroundColor: 'var(--bg-dark)',
-                                            border: '1px solid var(--border)',
-                                            borderRadius: 'var(--radius)',
-                                            maxHeight: '200px',
-                                            overflowY: 'auto',
-                                            zIndex: 1000,
-                                            marginTop: '0.25rem'
-                                        }}>
-                                            {filteredBikeTypes.map((bike) => (
-                                                <div
-                                                    key={bike.id}
-                                                    onClick={() => handleSelectBike(bike)}
-                                                    style={{
-                                                        padding: '0.75rem',
-                                                        cursor: 'pointer',
-                                                        borderBottom: '1px solid var(--border)'
-                                                    }}
-                                                    onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--bg-hover)'}
-                                                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-                                                >
-                                                    <div style={{ fontWeight: 'bold' }}>
-                                                        {bike.type} {bike.code && `(${bike.code})`}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                                                        {bike.category && `${bike.category} • `}
-                                                        {(bike.year_from || bike.year_to) && `${bike.year_from || '?'}-${bike.year_to || '?'}`}
-                                                    </div>
+                                {showBikeDropdown && filteredBikeTypes.length > 0 && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '100%',
+                                        left: 0,
+                                        right: 0,
+                                        backgroundColor: 'var(--bg-dark)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: 'var(--radius)',
+                                        maxHeight: '200px',
+                                        overflowY: 'auto',
+                                        zIndex: 1000,
+                                        marginTop: '0.25rem'
+                                    }}>
+                                        {filteredBikeTypes.map((bike) => (
+                                            <div
+                                                key={bike.id}
+                                                onClick={() => handleSelectBike(bike)}
+                                                style={{
+                                                    padding: '0.75rem',
+                                                    cursor: 'pointer',
+                                                    borderBottom: '1px solid var(--border)'
+                                                }}
+                                                onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--bg-hover)'}
+                                                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                                            >
+                                                <div style={{ fontWeight: 'bold' }}>
+                                                    {bike.type} {bike.code && `(${bike.code})`}
                                                 </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Added Engine No, Color, Year */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
-                                <div className="input-group">
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>No. Mesin</label>
-                                    <input type="text" name="engineNumber" className="input" value={formData.engineNumber} onChange={handleChange} onBlur={handleCustomerDataBlur} />
-                                </div>
-                                <div className="input-group">
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Warna</label>
-                                    <input type="text" name="color" className="input" value={formData.color || ''} onChange={handleChange} onBlur={handleCustomerDataBlur} />
-                                </div>
-                                <div className="input-group">
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Tahun Rakit</label>
-                                    <input type="text" name="year" className="input" value={formData.year || ''} onChange={handleChange} onBlur={handleCustomerDataBlur} />
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
-                                <div className="input-group">
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Kilometer</label>
-                                    <input type="number" name="kilometer" className="input" placeholder="KM" value={formData.kilometer} onChange={handleChange} onBlur={handleCustomerDataBlur} />
-                                </div>
-                                <div className="input-group">
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>No. Rangka (Opsional)</label>
-                                    <input type="text" name="frameNumber" className="input" value={formData.frameNumber} onChange={handleChange} onBlur={handleCustomerDataBlur} />
-                                </div>
+                                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                                    {bike.category && `${bike.category} • `}
+                                                    {(bike.year_from || bike.year_to) && `${bike.year_from || '?'}-${bike.year_to || '?'}`}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -670,14 +680,39 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                         </div>
                     </div>
 
-                    {/* --- BOTTOM SECTION: ESTIMATION (Split Service & Parts) --- */}
-                    <div>
+                    <div className="grid-cols-3 sm-grid-cols-1" style={{ display: 'grid', gap: '1rem', marginTop: '1rem' }}>
+                        <div className="input-group">
+                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>No. Mesin</label>
+                            <input type="text" name="engineNumber" className="input" value={formData.engineNumber} onChange={handleChange} onBlur={handleCustomerDataBlur} />
+                        </div>
+                        <div className="input-group">
+                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Warna</label>
+                            <input type="text" name="color" className="input" value={formData.color || ''} onChange={handleChange} onBlur={handleCustomerDataBlur} />
+                        </div>
+                        <div className="input-group">
+                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Tahun Rakit</label>
+                            <input type="text" name="year" className="input" value={formData.year || ''} onChange={handleChange} onBlur={handleCustomerDataBlur} />
+                        </div>
+                    </div>
+
+                    <div className="grid-responsive-2" style={{ gap: '1rem', marginTop: '1rem' }}>
+                        <div className="input-group">
+                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Kilometer</label>
+                            <input type="number" name="kilometer" className="input" placeholder="KM" value={formData.kilometer} onChange={handleChange} onBlur={handleCustomerDataBlur} />
+                        </div>
+                        <div className="input-group">
+                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>No. Rangka (Opsional)</label>
+                            <input type="text" name="frameNumber" className="input" value={formData.frameNumber} onChange={handleChange} onBlur={handleCustomerDataBlur} />
+                        </div>
+                    </div>
+
+                    {/* --- BOTTOM SECTION: ESTIMATION --- */}
+                    <div style={{ marginTop: '1rem' }}>
                         <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)' }}>
                             <FileText size={18} /> Estimasi Biaya & Jasa
                         </h3>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-
+                        <div className="grid-responsive-2" style={{ gap: '1.5rem' }}>
                             {/* LEFT: JASA SERVIS */}
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <h4 style={{ marginBottom: '0.5rem', fontSize: '1rem', color: 'var(--text-muted)' }}>Jasa Servis</h4>
@@ -706,7 +741,7 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                                         <button type="button" className="btn btn-primary" onClick={handleAddService} disabled={!selectedServiceId}><Plus size={18} /></button>
                                     </div>
                                 </div>
-                                <div style={{ flex: 1, backgroundColor: 'var(--bg-hover)', borderRadius: 'var(--radius)', padding: '0.5rem', marginBottom: '0.5rem', minHeight: '120px' }}>
+                                <div style={{ flex: 1, backgroundColor: 'var(--bg-hover)', borderRadius: 'var(--radius)', padding: '0.5rem', minHeight: '120px' }}>
                                     {items.filter(i => i.type === 'Service').length === 0 ? (
                                         <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.85rem', padding: '2rem', fontStyle: 'italic' }}>Belum ada jasa dipilih.</p>
                                     ) : (
@@ -716,7 +751,7 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                                                     <th style={{ padding: '0.5rem' }}>Item</th>
                                                     <th style={{ padding: '0.5rem', textAlign: 'right' }}>Harga</th>
                                                     <th style={{ padding: '0.5rem', textAlign: 'center', width: '50px' }}>Qty</th>
-                                                    <th style={{ padding: '0.5rem', textAlign: 'right', width: '140px' }}>Diskon (% / Rp)</th>
+                                                    <th style={{ padding: '0.5rem', textAlign: 'right', width: '120px' }}>Disk (%)</th>
                                                     <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
                                                     <th style={{ width: '30px' }}></th>
                                                 </tr>
@@ -751,18 +786,21 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                                         <select className="input" style={{ flex: 1 }} value={selectedPartId} onChange={(e) => setSelectedPartId(e.target.value)}>
                                             <option value="">+ Tambah Part</option>
                                             {partsList
-                                                .filter(p => p.name?.toLowerCase().includes(partSearch.toLowerCase()))
+                                                .filter(p => {
+                                                    const search = partSearch.toLowerCase();
+                                                    return p.name?.toLowerCase().includes(search) || p.id?.toLowerCase().includes(search);
+                                                })
                                                 .slice(0, 50)
                                                 .map(p => (
                                                     <option key={p.id} value={p.id}>
-                                                        {p.name} (S: {p.stock}) - Rp {p.price.toLocaleString()}
+                                                        [{p.id}] {p.name} (S: {p.stock}) - Rp {p.price.toLocaleString()}
                                                     </option>
                                                 ))}
                                         </select>
                                         <button type="button" className="btn btn-primary" onClick={handleAddPart} disabled={!selectedPartId}><Plus size={18} /></button>
                                     </div>
                                 </div>
-                                <div style={{ flex: 1, backgroundColor: 'var(--bg-hover)', borderRadius: 'var(--radius)', padding: '0.5rem', marginBottom: '0.5rem', minHeight: '120px' }}>
+                                <div style={{ flex: 1, backgroundColor: 'var(--bg-hover)', borderRadius: 'var(--radius)', padding: '0.5rem', minHeight: '120px' }}>
                                     {items.filter(i => i.type === 'Part').length === 0 ? (
                                         <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.85rem', padding: '2rem', fontStyle: 'italic' }}>Belum ada part dipilih.</p>
                                     ) : (
@@ -771,8 +809,8 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                                                 <tr style={{ color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                                                     <th style={{ padding: '0.5rem' }}>Item</th>
                                                     <th style={{ padding: '0.5rem', textAlign: 'right' }}>Harga</th>
-                                                    <th style={{ padding: '0.5rem', textAlign: 'center', width: '50px' }}>Qty</th>
-                                                    <th style={{ padding: '0.5rem', textAlign: 'right', width: '140px' }}>Diskon (% / Rp)</th>
+                                                    <th style={{ padding: '0.5rem', textAlign: 'center', width: '110px' }}>Qty</th>
+                                                    <th style={{ padding: '0.5rem', textAlign: 'right', width: '90px' }}>Diskon</th>
                                                     <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
                                                     <th style={{ width: '30px' }}></th>
                                                 </tr>
@@ -797,47 +835,33 @@ export default function ServiceEntryForm({ onSave, onCancel, initialData }) {
                             <textarea name="complaint" className="input" rows="3" value={formData.complaint} onChange={handleChange} placeholder="Deskripsikan keluhan pelanggan..."></textarea>
                         </div>
 
-                        <div>
+                        <div className="grid-responsive-2" style={{ gap: '1.5rem' }}>
                             <div style={{ backgroundColor: 'var(--bg-hover)', padding: '1.25rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
                                 <h4 style={{ marginBottom: '1rem', fontSize: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', color: 'var(--primary)' }}>Ringkasan Biaya</h4>
-
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                                    <span>Total Jasa</span>
-                                    <span>Rp {items.filter(i => i.type === 'Service').reduce((sum, item) => sum + (item.price * item.q), 0).toLocaleString()}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                                    <span>Total Sparepart</span>
-                                    <span>Rp {items.filter(i => i.type === 'Part').reduce((sum, item) => sum + (item.price * item.q), 0).toLocaleString()}</span>
-                                </div>
-
-                                <div style={{ borderTop: '1px dashed var(--border)', margin: '0.75rem 0' }}></div>
-
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.95rem' }}>
                                     <span>Subtotal</span>
-                                    <span>Rp {items.reduce((sum, item) => sum + (item.price * item.q), 0).toLocaleString()}</span>
+                                    <span>Rp {items.reduce((sum, item) => sum + ((item.price - (item.discount || 0)) * item.q), 0).toLocaleString()}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--danger)' }}>
                                     <span>Diskon / Potongan</span>
                                     <span>- Rp {items.reduce((sum, item) => sum + ((item.discount || 0) * item.q), 0).toLocaleString()}</span>
                                 </div>
-
                                 <div style={{ borderTop: '2px solid var(--border)', marginTop: '0.75rem', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>Total Estimasi</span>
                                     <span style={{ fontSize: '1.6rem', fontWeight: 'bold', color: 'var(--primary)' }}>Rp {calculateTotal().toLocaleString()}</span>
                                 </div>
                             </div>
 
-                            <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                                <button type="submit" className="btn btn-primary" style={{ flex: 1, padding: '0.8rem' }}>
+                            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                                <button type="submit" className="btn btn-primary" style={{ flex: '1 1 200px', padding: '0.8rem' }}>
                                     <Save size={18} /> Simpan Pendaftaran
                                 </button>
-                                <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={onCancel}>
+                                <button type="button" className="btn btn-outline" style={{ flex: '1 1 200px' }} onClick={onCancel}>
                                     Batal
                                 </button>
                             </div>
                         </div>
                     </div>
-
                 </form>
             </div>
         </>

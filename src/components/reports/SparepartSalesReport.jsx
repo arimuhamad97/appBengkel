@@ -41,12 +41,23 @@ export default function SparepartSalesReport() {
                     items.forEach(item => {
                         const category = item.category || 'Lainnya';
                         categorySet.add(category);
+                        const price = item.price || 0;
+                        const discount = item.discount || 0;
+                        const q = item.q || 0;
+
+                        let revenue;
+                        if (item.isFreeVoucher && item.originalPrice) {
+                            revenue = item.originalPrice * q;
+                        } else {
+                            revenue = (price - discount) * q;
+                        }
+
                         allParts.push({
                             code: item.id || 'UNKNOWN',
                             name: item.name || 'Unknown',
                             category: category,
-                            qty: item.q || 0,
-                            revenue: (item.price || 0) * (item.q || 0),
+                            qty: q,
+                            revenue: revenue,
                             source: 'direct_sale'
                         });
                     });
@@ -77,12 +88,23 @@ export default function SparepartSalesReport() {
                             if (item.type && item.type.toLowerCase() === 'part') {
                                 const category = item.category || 'Lainnya';
                                 categorySet.add(category);
+                                const price = item.price || 0;
+                                const discount = item.discount || 0;
+                                const q = item.q || 0;
+
+                                let revenue;
+                                if (item.isFreeVoucher && item.originalPrice) {
+                                    revenue = item.originalPrice * q;
+                                } else {
+                                    revenue = (price - discount) * q;
+                                }
+
                                 allParts.push({
                                     code: item.id || item.code,
                                     name: item.name,
                                     category: category,
-                                    qty: item.q || 0,
-                                    revenue: (item.price || 0) * (item.q || 0),
+                                    qty: q,
+                                    revenue: revenue,
                                     source: 'service'
                                 });
                             }
@@ -99,7 +121,7 @@ export default function SparepartSalesReport() {
             // Filter by category
             const filteredByCategory = selectedCategory === 'all'
                 ? allParts
-                : allParts.filter(p => p.category === selectedCategory);
+                : allParts.filter(p => p.category?.toLowerCase() === selectedCategory.toLowerCase());
 
             // Group by code
             const grouped = filteredByCategory.reduce((acc, part) => {
@@ -294,9 +316,9 @@ export default function SparepartSalesReport() {
                             style={{ minWidth: '150px' }}
                         >
                             <option value="all">Semua Kategori</option>
-                            <option value="HGP">HGP</option>
-                            <option value="non HGP">non HGP</option>
-                            <option value="Oli">Oli</option>
+                            {categories.filter(c => c !== 'all').map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                            ))}
                         </select>
                     </div>
                 </div>

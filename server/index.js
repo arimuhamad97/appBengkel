@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { exec } from 'child_process';
 import bodyParser from 'body-parser';
 import db, { initDb, reloadDatabase } from './db.js';
 import fs from 'fs';
@@ -87,6 +88,20 @@ app.delete('/api/services/:id', (req, res) => {
     db.run("DELETE FROM services WHERE id = ?", [id], function (err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: 'Deleted', changes: this.changes });
+    });
+});
+
+// 2c. PUT Service (Update)
+app.put('/api/services/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, group, price } = req.body;
+
+    const sql = "UPDATE services SET name = ?, group_type = ?, price = ? WHERE id = ?";
+    const params = [name, group, price, id];
+
+    db.run(sql, params, function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: 'Updated', changes: this.changes });
     });
 });
 
@@ -252,7 +267,7 @@ app.put('/api/queue/:id', (req, res) => {
     const itemsJson = JSON.stringify(data.items || []);
 
     // Check previous status and VALIDATE STOCK if completing
-    db.get("SELECT status FROM queue WHERE id = ?", [id], async (err, oldRecord) => {
+    db.get("SELECT status, payment_date FROM queue WHERE id = ?", [id], async (err, oldRecord) => {
         if (err) return res.status(500).json({ error: err.message });
 
         const oldStatus = oldRecord ? oldRecord.status : null;
@@ -307,17 +322,31 @@ app.put('/api/queue/:id', (req, res) => {
             }
         }
 
+        // Helper to get local date YYYY-MM-DD
+        const getLocalDate = () => {
+            const d = new Date();
+            return d.getFullYear() + '-' +
+                String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                String(d.getDate()).padStart(2, '0');
+        };
+
+        // Determine payment_date with priority: Provided > Auto (if paying) > Existing
+        const paymentDate = data.payment_date !== undefined
+            ? data.payment_date
+            : ((newStatus === 'Paid' && oldStatus !== 'Paid') ? getLocalDate() : oldRecord.payment_date);
+
         // JIKA LOLOS VALIDASI: Lanjut Update Queue
         const sql = `UPDATE queue SET 
             customerName = ?, bikeModel = ?, plateNumber = ?, status = ?, mechanicId = ?, 
             complaint = ?, items = ?, phoneNumber = ?, address = ?, 
-            frameNumber = ?, engineNumber = ?, kilometer = ?
+            frameNumber = ?, engineNumber = ?, kilometer = ?, date = ?, payment_date = ?
             WHERE id = ?`;
 
         const params = [
             data.customerName, data.bikeModel, data.plateNumber, data.status, data.mechanicId,
             data.complaint, itemsJson, data.phoneNumber, data.address,
-            data.frameNumber, data.engineNumber, data.kilometer,
+            data.frameNumber, data.engineNumber, data.kilometer, data.date || oldRecord.date,
+            paymentDate,
             id
         ];
 
@@ -1564,6 +1593,85 @@ app.post('/api/database/restore', (req, res) => {
         }
         res.status(500).json({ error: err.message });
     }
+});
+
+// --- SETTINGS ENDPOINTS ---
+app.get('/api/settings', (req, res) => {
+    db.all("SELECT * FROM settings", [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const settings = {};
+        rows.forEach(r => settings[r.key] = r.value);
+        res.json(settings);
+    });
+});
+
+app.post('/api/settings', (req, res) => {
+    const settings = req.body;
+    const stmt = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION");
+        Object.keys(settings).forEach(key => {
+            stmt.run(key, settings[key]);
+        });
+        db.run("COMMIT", (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ message: 'Settings saved' });
+        });
+        stmt.finalize();
+    });
+});
+
+// --- PRINTING ENDPOINTS ---
+app.post('/api/print', (req, res) => {
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ error: 'No content provided' });
+
+    db.get("SELECT value FROM settings WHERE key = 'printer_name'", [], (err, row) => {
+        const printer = (row && row.value) ? row.value : 'EPSON';
+
+        // Create unique temp file
+        const tempFile = path.join(__dirname, `print_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.txt`);
+
+        try {
+            // Write content (Windows lines)
+            const textContent = content.replace(/\n/g, '\r\n');
+            fs.writeFileSync(tempFile, textContent);
+
+            // Command to copy file to printer share
+            const cmd = `cmd /c copy /b "${tempFile}" "\\\\127.0.0.1\\${printer}"`;
+            console.log('Printing to:', printer);
+
+            exec(cmd, (error, stdout, stderr) => {
+                // Try delete temp file after brief delay or immediately
+                try { fs.unlinkSync(tempFile); } catch (e) { }
+
+                if (error) {
+                    console.error('Print Error:', error);
+                    return res.status(500).json({ error: 'Print Failed: ' + error.message, details: stderr });
+                }
+                res.json({ message: 'Print Queued', stdout });
+            });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+});
+
+app.post('/api/print/test', (req, res) => {
+    // Re-use logic or keep separate. Keeping separate for simplicity of test button.
+    db.get("SELECT value FROM settings WHERE key = 'printer_name'", [], (err, row) => {
+        const printer = (row && row.value) ? row.value : 'EPSON';
+        const content = "\n\nTEST PRINT SUCCESS\n----------------\nBengkel Motor\n----------------\n\n\n\n\r\n";
+        const tempFile = path.join(__dirname, 'temp_print_test.txt');
+        try {
+            fs.writeFileSync(tempFile, content);
+            const cmd = `cmd /c copy /b "${tempFile}" "\\\\127.0.0.1\\${printer}"`;
+            exec(cmd, (error, stdout, stderr) => {
+                if (error) return res.status(500).json({ error: error.message });
+                res.json({ message: 'Print Queued' });
+            });
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
 });
 
 app.listen(PORT, '0.0.0.0', () => {

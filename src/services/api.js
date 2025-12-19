@@ -100,6 +100,14 @@ export const api = {
         });
         return res.json();
     },
+    updateService: async (id, data) => {
+        const res = await fetch(`${getBaseUrl()}/services/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return res.json();
+    },
 
     // Inventory
     getInventory: async () => {
@@ -398,6 +406,24 @@ export const api = {
         const res = await fetch(`${getBaseUrl()}/customer-last-visit?${query}`);
         if (!res.ok) return null;
         return res.json();
+    },
+
+    // Printing
+    printNetworkTest: async () => {
+        const res = await fetch(`${getBaseUrl()}/print/test`, { method: 'POST' });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Print Failed');
+        return json;
+    },
+    printJob: async (content) => {
+        const res = await fetch(`${getBaseUrl()}/print`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content })
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Print Failed');
+        return json;
     },
 
     // Settings

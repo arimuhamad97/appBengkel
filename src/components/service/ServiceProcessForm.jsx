@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Save, X, Search, FileText } from 'lucide-react';
+import { Plus, Trash2, Save, X, Search, FileText, Minus } from 'lucide-react';
 import { api } from '../../services/api';
 
 export default function ServiceProcessForm({ service, onSave, onCancel, onRevert, onUpdateProgress }) {
-    const [items, setItems] = useState(service.items || []);
+    // Ensure every item has a listId, generating one if missing (e.g. from saved DB data)
+    const [items, setItems] = useState(() => (service.items || []).map(item => ({
+        ...item,
+        listId: item.listId || `gen-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    })));
     const [note, setNote] = useState(service.complaint || '');
     const [mechanicId, setMechanicId] = useState(service.mechanicId || '');
     const [kilometer, setKilometer] = useState(service.kilometer || '');
@@ -35,14 +39,17 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
 
     // Discount Update Handler (supports both percent and nominal)
     const handleUpdateDiscount = (listId, value, mode = 'percent') => {
+        // Konversi koma ke titik untuk support input desimal dengan koma
+        const normalizedValue = typeof value === 'string' ? value.replace(',', '.') : value;
+
         const newItems = items.map(item => {
             if (item.listId === listId) {
                 if (mode === 'percent') {
-                    const percent = Math.min(100, Math.max(0, Number(value)));
+                    const percent = Math.min(100, Math.max(0, Number(normalizedValue)));
                     const discount = Math.floor((item.price * percent) / 100);
                     return { ...item, discount, discountPercent: percent };
                 } else {
-                    const nominal = Number(value);
+                    const nominal = Number(normalizedValue);
                     const discountPercent = item.price > 0 ? parseFloat(((nominal / item.price) * 100).toFixed(2)) : 0;
                     return { ...item, discount: nominal, discountPercent };
                 }
@@ -77,23 +84,70 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
         setItems(newItems);
     };
 
+    // Fungsi untuk cek apakah jasa termasuk ASS I-IV
+    const isASSService = (groupType) => {
+        if (!groupType) return false;
+        const group = groupType.toUpperCase().trim();
+        return group === 'ASS I' || group === 'ASS II' || group === 'ASS III' || group === 'ASS IV';
+    };
+
     const calculateTotal = () => {
         return items.reduce((sum, item) => sum + ((item.price - (item.discount || 0)) * item.q), 0);
+    };
+
+    const calculateRevenueTotal = () => {
+        // Untuk laporan pendapatan, gunakan harga asli (sebelum kupon gratis)
+        return items.reduce((sum, item) => {
+            const basePrice = item.originalPrice || item.price;
+            const discount = item.isFreeVoucher ? 0 : (item.discount || 0);
+            return sum + ((basePrice - discount) * item.q);
+        }, 0);
     };
 
     const handleAddService = () => {
         if (!selectedServiceId) return;
         const serv = servicesList.find(s => s.id === parseInt(selectedServiceId));
         if (serv) {
+            // Cek apakah jasa ini termasuk ASS I-IV
+            const isFree = isASSService(serv.group_type);
+
             const newItem = {
                 ...serv,
                 type: 'Service',
                 listId: Date.now() + Math.random(),
                 q: 1,
-                discount: 0
+                discount: isFree ? serv.price : 0,
+                discountPercent: isFree ? 100 : 0,
+                isFreeVoucher: isFree,
+                originalPrice: serv.price,
+                group_type: serv.group_type
             };
-            setItems([...items, newItem]);
+
+            const newItems = [...items, newItem];
+
+            // Jika menambah ASS I, apply gratis ke semua oli
+            if (serv.group_type && serv.group_type.toUpperCase().trim() === 'ASS I') {
+                const updatedItems = newItems.map(item => {
+                    // Untuk part, gunakan category; untuk service, gunakan group_type
+                    const itemGroup = item.type === 'Part' ? item.category : item.group_type;
+                    if (item.type === 'Part' && itemGroup && itemGroup.toUpperCase().trim() === 'OLI' && !item.isFreeVoucher) {
+                        return {
+                            ...item,
+                            isFreeVoucher: true,
+                            originalPrice: item.originalPrice || item.price,
+                            discount: item.price,
+                            discountPercent: 100
+                        };
+                    }
+                    return item;
+                });
+                setItems(updatedItems);
+            } else {
+                setItems(newItems);
+            }
+
             setSelectedServiceId('');
+            setServiceSearch('');
         }
     };
 
@@ -101,20 +155,80 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
         if (!selectedPartId) return;
         const part = partsList.find(p => p.id === selectedPartId);
         if (part) {
+            // Cek apakah ada jasa ASS I dalam items
+            const hasASSI = items.some(item =>
+                item.type === 'Service' &&
+                item.group_type &&
+                item.group_type.toUpperCase().trim() === 'ASS I'
+            );
+
+            // Cek apakah part ini adalah oli (gunakan category untuk inventory)
+            const isOil = part.category && part.category.toUpperCase().trim() === 'OLI';
+
+            // Jika ada ASS I dan part adalah oli, berikan gratis
+            const isFree = hasASSI && isOil;
+
+            console.log('[DEBUG] Adding part:', {
+                name: part.name,
+                category: part.category,
+                isOil,
+                hasASSI,
+                isFree
+            });
+
             const newItem = {
                 ...part,
                 type: 'Part',
                 listId: Date.now() + Math.random(),
                 q: 1,
-                discount: 0
+                discount: isFree ? part.price : 0,
+                discountPercent: isFree ? 100 : 0,
+                isFreeVoucher: isFree,
+                originalPrice: part.price,
+                category: part.category // Use category for inventory
             };
             setItems([...items, newItem]);
             setSelectedPartId('');
+            setPartSearch('');
         }
     };
 
-    const handleRemoveItemItems = (itemToRemove) => {
+    const handleRemoveItem = (itemToRemove) => {
         const newItems = items.filter(i => i !== itemToRemove);
+
+        // Jika menghapus ASS I, kembalikan oli ke harga normal
+        const removedIsASSI = itemToRemove.type === 'Service' &&
+            itemToRemove.group_type &&
+            itemToRemove.group_type.toUpperCase().trim() === 'ASS I';
+
+        if (removedIsASSI) {
+            // Cek apakah masih ada ASS I lain
+            const stillHasASSI = newItems.some(item =>
+                item.type === 'Service' &&
+                item.group_type &&
+                item.group_type.toUpperCase().trim() === 'ASS I'
+            );
+
+            // Jika tidak ada ASS I lagi, kembalikan oli ke harga normal
+            if (!stillHasASSI) {
+                const updatedItems = newItems.map(item => {
+                    // Untuk part, gunakan category; untuk service, gunakan group_type
+                    const itemGroup = item.type === 'Part' ? item.category : item.group_type;
+                    if (item.type === 'Part' && itemGroup && itemGroup.toUpperCase().trim() === 'OLI' && item.isFreeVoucher) {
+                        return {
+                            ...item,
+                            isFreeVoucher: false,
+                            discount: 0,
+                            discountPercent: 0
+                        };
+                    }
+                    return item;
+                });
+                setItems(updatedItems);
+                return;
+            }
+        }
+
         setItems(newItems);
     };
 
@@ -215,7 +329,7 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
                 </div>
 
                 {/* Info Grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', backgroundColor: 'var(--bg-dark)', padding: '1rem', borderRadius: 'var(--radius)' }}>
+                <div className="grid-responsive-4" style={{ backgroundColor: 'var(--bg-dark)', padding: '1rem', borderRadius: 'var(--radius)' }}>
                     <div>
                         <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Motor</label>
                         <div style={{ fontWeight: 'bold' }}>{service.bikeModel}</div>
@@ -290,9 +404,14 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
                                     {servicesList
                                         .filter(s => s.name?.toLowerCase().includes(serviceSearch.toLowerCase()))
                                         .slice(0, 50)
-                                        .map(s => (
-                                            <option key={s.id} value={s.id}>{s.name} - Rp {s.price.toLocaleString()}</option>
-                                        ))}
+                                        .map(s => {
+                                            const isFree = isASSService(s.group_type);
+                                            return (
+                                                <option key={s.id} value={s.id}>
+                                                    {s.name} {s.group_type ? `[${s.group_type}]` : ''} - Rp {s.price.toLocaleString()} {isFree ? '⭐ GRATIS' : ''}
+                                                </option>
+                                            );
+                                        })}
                                 </select>
                                 <button type="button" className="btn btn-primary" onClick={handleAddService} disabled={!selectedServiceId}><Plus size={18} /></button>
                             </div>
@@ -301,77 +420,97 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
                             {items.filter(i => i.type === 'Service').length === 0 ? (
                                 <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.85rem', padding: '2rem', fontStyle: 'italic' }}>Belum ada jasa dipilih.</p>
                             ) : (
-                                <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr style={{ color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                                            <th style={{ padding: '0.5rem' }}>Item</th>
-                                            <th style={{ padding: '0.5rem', textAlign: 'right' }}>Harga</th>
-                                            <th style={{ padding: '0.5rem', textAlign: 'center', width: '50px' }}>Qty</th>
-                                            <th style={{ padding: '0.5rem', textAlign: 'right', width: '140px' }}>Diskon (% / Rp)</th>
-                                            <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
-                                            <th style={{ width: '30px' }}></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {items.map((item, idx) => item.type === 'Service' ? (
-                                            <tr key={item.listId || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                                <td style={{ padding: '0.25rem' }}>{item.name}</td>
-                                                <td style={{ padding: '0.25rem', textAlign: 'right', width: '120px' }}>
-                                                    <input
-                                                        type="number"
-                                                        className="input"
-                                                        style={{ padding: '0.1rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
-                                                        value={item.price}
-                                                        onChange={(e) => handleUpdatePrice(item.listId, e.target.value)}
-                                                    />
-                                                </td>
-                                                <td style={{ padding: '0.25rem', textAlign: 'center' }}>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        className="input"
-                                                        style={{ padding: '0.1rem', fontSize: '0.8rem', textAlign: 'center', width: '40px' }}
-                                                        value={item.q}
-                                                        onChange={(e) => handleUpdateQuantity(item.listId, e.target.value)}
-                                                    />
-                                                </td>
-                                                <td style={{ padding: '0.25rem' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
-                                                        <div style={{ position: 'relative', width: '50px' }}>
-                                                            <input
-                                                                type="number"
-                                                                className="input"
-                                                                style={{ padding: '0.2rem 14px 0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
-                                                                placeholder="0"
-                                                                min="0"
-                                                                max="100"
-                                                                value={item.discountPercent !== undefined ? item.discountPercent : ''}
-                                                                onChange={(e) => handleUpdateDiscount(item.listId, e.target.value, 'percent')}
-                                                            />
-                                                            <span style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>%</span>
-                                                        </div>
+                                <div className="table-responsive">
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid var(--border)', fontSize: '0.85rem' }}>
+                                                <th style={{ padding: '0.5rem' }}>Item</th>
+                                                <th style={{ padding: '0.5rem', textAlign: 'right' }}>Harga</th>
+                                                <th style={{ padding: '0.5rem', textAlign: 'center', width: '50px' }}>Qty</th>
+                                                <th style={{ padding: '0.5rem', textAlign: 'right', width: '100px' }}>Disc %</th>
+                                                <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
+                                                <th style={{ width: '30px' }}></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {items.map((item, idx) => item.type === 'Service' ? (
+                                                <tr key={item.listId || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                                    <td style={{ padding: '0.25rem' }}>
+                                                        {item.name}
+                                                        {item.isFreeVoucher && (
+                                                            <span style={{
+                                                                marginLeft: '0.5rem',
+                                                                padding: '0.1rem 0.4rem',
+                                                                backgroundColor: '#10b981',
+                                                                color: 'white',
+                                                                borderRadius: '4px',
+                                                                fontSize: '0.7rem',
+                                                                fontWeight: 'bold'
+                                                            }}>
+                                                                GRATIS
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem', textAlign: 'right', width: '120px' }}>
                                                         <input
                                                             type="number"
                                                             className="input"
-                                                            style={{ padding: '0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '80px' }}
-                                                            placeholder="Rp"
-                                                            value={item.discount || ''}
-                                                            onChange={(e) => handleUpdateDiscount(item.listId, e.target.value, 'nominal')}
+                                                            style={{ padding: '0.1rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
+                                                            value={item.price}
+                                                            onChange={(e) => handleUpdatePrice(item.listId, e.target.value)}
+                                                            disabled={item.isFreeVoucher}
                                                         />
-                                                    </div>
-                                                </td>
-                                                <td style={{ padding: '0.25rem', textAlign: 'right', fontWeight: 'bold' }}>
-                                                    Rp {((item.price - (item.discount || 0)) * item.q).toLocaleString()}
-                                                </td>
-                                                <td style={{ padding: '0.25rem', textAlign: 'right', width: '20px' }}>
-                                                    <button type="button" onClick={() => handleRemoveItemItems(item)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}>
-                                                        <Trash2 size={14} />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ) : null)}
-                                    </tbody>
-                                </table>
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem', textAlign: 'center' }}>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            className="input"
+                                                            style={{ padding: '0.1rem', fontSize: '0.8rem', textAlign: 'center', width: '40px' }}
+                                                            value={item.q}
+                                                            onChange={(e) => handleUpdateQuantity(item.listId, e.target.value)}
+                                                        />
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+                                                            <div style={{ position: 'relative', width: '50px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    className="input"
+                                                                    style={{ padding: '0.2rem 14px 0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
+                                                                    placeholder="0"
+                                                                    value={item.discountPercent !== undefined ? item.discountPercent : ''}
+                                                                    onChange={(e) => handleUpdateDiscount(item.listId, e.target.value, 'percent')}
+                                                                    disabled={item.isFreeVoucher}
+                                                                    inputMode="decimal"
+                                                                />
+                                                                <span style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>%</span>
+                                                            </div>
+                                                            <input
+                                                                type="text"
+                                                                className="input"
+                                                                style={{ padding: '0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '80px' }}
+                                                                placeholder="Rp"
+                                                                value={item.discount || ''}
+                                                                onChange={(e) => handleUpdateDiscount(item.listId, e.target.value, 'nominal')}
+                                                                disabled={item.isFreeVoucher}
+                                                                inputMode="decimal"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem', textAlign: 'right', fontWeight: 'bold' }}>
+                                                        Rp {((item.price - (item.discount || 0)) * item.q).toLocaleString()}
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem', textAlign: 'right', width: '20px' }}>
+                                                        <button type="button" onClick={() => handleRemoveItem(item)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}>
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ) : null)}
+                                        </tbody>
+                                    </table>
+                                </div>
                             )}
                             <div style={{ padding: '0.5rem', borderTop: '1px solid var(--border)', textAlign: 'right', fontWeight: 'bold', fontSize: '0.9rem' }}>
                                 Total Jasa: Rp {items.filter(i => i.type === 'Service').reduce((sum, item) => sum + ((item.price - (item.discount || 0)) * item.q), 0).toLocaleString()}
@@ -398,13 +537,29 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
                                 <select className="input" style={{ flex: 1 }} value={selectedPartId} onChange={(e) => setSelectedPartId(e.target.value)}>
                                     <option value="">+ Tambah Part</option>
                                     {partsList
-                                        .filter(p => p.name?.toLowerCase().includes(partSearch.toLowerCase()))
+                                        .filter(p => {
+                                            const search = partSearch.toLowerCase();
+                                            return p.name?.toLowerCase().includes(search) ||
+                                                p.id?.toLowerCase().includes(search);
+                                        })
                                         .slice(0, 50)
-                                        .map(p => (
-                                            <option key={p.id} value={p.id}>
-                                                {p.name} (S: {p.stock}) - Rp {p.price.toLocaleString()}
-                                            </option>
-                                        ))}
+                                        .map(p => {
+                                            // Cek apakah ada ASS I
+                                            const hasASSI = items.some(item =>
+                                                item.type === 'Service' &&
+                                                item.group_type &&
+                                                item.group_type.toUpperCase().trim() === 'ASS I'
+                                            );
+                                            // Cek apakah part adalah oli (gunakan category)
+                                            const isOil = p.category && p.category.toUpperCase().trim() === 'OLI';
+                                            const willBeFree = hasASSI && isOil;
+
+                                            return (
+                                                <option key={p.id} value={p.id}>
+                                                    [{p.id}] {p.name} (S: {p.stock}) - Rp {p.price.toLocaleString()} {willBeFree ? '⭐ GRATIS' : ''}
+                                                </option>
+                                            );
+                                        })}
                                 </select>
                                 <button type="button" className="btn btn-primary" onClick={handleAddPart} disabled={!selectedPartId}><Plus size={18} /></button>
                             </div>
@@ -413,77 +568,105 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
                             {items.filter(i => i.type === 'Part').length === 0 ? (
                                 <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.85rem', padding: '2rem', fontStyle: 'italic' }}>Belum ada part dipilih.</p>
                             ) : (
-                                <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr style={{ color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                                            <th style={{ padding: '0.5rem' }}>Item</th>
-                                            <th style={{ padding: '0.5rem', textAlign: 'right' }}>Harga</th>
-                                            <th style={{ padding: '0.5rem', textAlign: 'center', width: '50px' }}>Qty</th>
-                                            <th style={{ padding: '0.5rem', textAlign: 'right', width: '140px' }}>Diskon (% / Rp)</th>
-                                            <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
-                                            <th style={{ width: '30px' }}></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {items.map((item, idx) => item.type === 'Part' ? (
-                                            <tr key={item.listId || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                                <td style={{ padding: '0.25rem' }}>{item.name}</td>
-                                                <td style={{ padding: '0.25rem', textAlign: 'right', width: '120px' }}>
-                                                    <input
-                                                        type="number"
-                                                        className="input"
-                                                        style={{ padding: '0.1rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
-                                                        value={item.price}
-                                                        onChange={(e) => handleUpdatePrice(item.listId, e.target.value)}
-                                                    />
-                                                </td>
-                                                <td style={{ padding: '0.25rem', textAlign: 'center' }}>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        className="input"
-                                                        style={{ padding: '0.1rem', fontSize: '0.8rem', textAlign: 'center', width: '40px' }}
-                                                        value={item.q}
-                                                        onChange={(e) => handleUpdateQuantity(item.listId, e.target.value)}
-                                                    />
-                                                </td>
-                                                <td style={{ padding: '0.25rem' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
-                                                        <div style={{ position: 'relative', width: '50px' }}>
-                                                            <input
-                                                                type="number"
-                                                                className="input"
-                                                                style={{ padding: '0.2rem 14px 0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
-                                                                placeholder="0"
-                                                                min="0"
-                                                                max="100"
-                                                                value={item.discountPercent !== undefined ? item.discountPercent : ''}
-                                                                onChange={(e) => handleUpdateDiscount(item.listId, e.target.value, 'percent')}
-                                                            />
-                                                            <span style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>%</span>
-                                                        </div>
+                                <div className="table-responsive" style={{ backgroundColor: 'var(--bg-dark)', borderRadius: 'var(--radius)', marginTop: '1rem' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ color: 'var(--text-muted)', textAlign: 'left', borderBottom: '1px solid var(--border)', fontSize: '0.85rem' }}>
+                                                <th style={{ padding: '0.5rem' }}>Item</th>
+                                                <th style={{ padding: '0.5rem', textAlign: 'right' }}>Harga</th>
+                                                <th style={{ padding: '0.5rem', textAlign: 'center', width: '120px' }}>Qty</th>
+                                                <th style={{ padding: '0.5rem', textAlign: 'right', width: '90px' }}>Diskon</th>
+                                                <th style={{ padding: '0.5rem', textAlign: 'right' }}>Total</th>
+                                                <th style={{ width: '30px' }}></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {items.map((item, idx) => item.type === 'Part' ? (
+                                                <tr key={item.listId || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                                    <td style={{ padding: '0.25rem' }}>
+                                                        {item.name}
+                                                        {item.isFreeVoucher && (
+                                                            <span style={{
+                                                                marginLeft: '0.5rem',
+                                                                padding: '0.1rem 0.4rem',
+                                                                backgroundColor: '#10b981',
+                                                                color: 'white',
+                                                                borderRadius: '4px',
+                                                                fontSize: '0.7rem',
+                                                                fontWeight: 'bold'
+                                                            }}>
+                                                                GRATIS (ASS I)
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem', textAlign: 'right', width: '120px' }}>
                                                         <input
                                                             type="number"
                                                             className="input"
-                                                            style={{ padding: '0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '80px' }}
-                                                            placeholder="Rp"
-                                                            value={item.discount || ''}
-                                                            onChange={(e) => handleUpdateDiscount(item.listId, e.target.value, 'nominal')}
+                                                            style={{ padding: '0.1rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
+                                                            value={item.price}
+                                                            onChange={(e) => handleUpdatePrice(item.listId, e.target.value)}
+                                                            disabled={item.isFreeVoucher}
                                                         />
-                                                    </div>
-                                                </td>
-                                                <td style={{ padding: '0.25rem', textAlign: 'right', fontWeight: 'bold' }}>
-                                                    Rp {((item.price - (item.discount || 0)) * item.q).toLocaleString()}
-                                                </td>
-                                                <td style={{ padding: '0.25rem', textAlign: 'right', width: '20px' }}>
-                                                    <button type="button" onClick={() => handleRemoveItemItems(item)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}>
-                                                        <Trash2 size={14} />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ) : null)}
-                                    </tbody>
-                                </table>
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem', textAlign: 'center' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px' }}>
+                                                            <button type="button" className="btn btn-outline" style={{ padding: '0 6px', height: '28px', minWidth: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => handleUpdateQuantity(item.listId, Math.max(1, parseInt(item.q || 0) - 1))}>
+                                                                <Minus size={14} />
+                                                            </button>
+                                                            <input
+                                                                type="number"
+                                                                min="1"
+                                                                className="input"
+                                                                style={{ padding: '0.1rem', fontSize: '0.8rem', textAlign: 'center', width: '40px', margin: 0 }}
+                                                                value={item.q}
+                                                                onChange={(e) => handleUpdateQuantity(item.listId, e.target.value)}
+                                                            />
+                                                            <button type="button" className="btn btn-outline" style={{ padding: '0 6px', height: '28px', minWidth: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => handleUpdateQuantity(item.listId, parseInt(item.q || 0) + 1)}>
+                                                                <Plus size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+                                                            <div style={{ position: 'relative', width: '50px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    className="input"
+                                                                    style={{ padding: '0.2rem 14px 0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '100%' }}
+                                                                    placeholder="0"
+                                                                    value={item.discountPercent !== undefined ? item.discountPercent : ''}
+                                                                    onChange={(e) => handleUpdateDiscount(item.listId, e.target.value, 'percent')}
+                                                                    disabled={item.isFreeVoucher}
+                                                                    inputMode="decimal"
+                                                                />
+                                                                <span style={{ position: 'absolute', right: '4px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>%</span>
+                                                            </div>
+                                                            <input
+                                                                type="text"
+                                                                className="input"
+                                                                style={{ padding: '0.2rem 4px', fontSize: '0.8rem', textAlign: 'right', width: '80px' }}
+                                                                placeholder="Rp"
+                                                                value={item.discount || ''}
+                                                                onChange={(e) => handleUpdateDiscount(item.listId, e.target.value, 'nominal')}
+                                                                disabled={item.isFreeVoucher}
+                                                                inputMode="decimal"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem', textAlign: 'right', fontWeight: 'bold' }}>
+                                                        Rp {((item.price - (item.discount || 0)) * item.q).toLocaleString()}
+                                                    </td>
+                                                    <td style={{ padding: '0.25rem', textAlign: 'right', width: '20px' }}>
+                                                        <button type="button" onClick={() => handleRemoveItem(item)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}>
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ) : null)}
+                                        </tbody>
+                                    </table>
+                                </div>
                             )}
                             <div style={{ padding: '0.5rem', borderTop: '1px solid var(--border)', textAlign: 'right', fontWeight: 'bold', fontSize: '0.9rem' }}>
                                 Total Sparepart: Rp {items.filter(i => i.type === 'Part').reduce((sum, item) => sum + ((item.price - (item.discount || 0)) * item.q), 0).toLocaleString()}
@@ -525,16 +708,35 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
                         </div>
 
                         <div style={{ borderTop: '2px solid var(--border)', marginTop: '0.75rem', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>Total Biaya</span>
+                            <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>Total yang Dibayar</span>
                             <span style={{ fontSize: '1.6rem', fontWeight: 'bold', color: 'var(--primary)' }}>Rp {calculateTotal().toLocaleString()}</span>
                         </div>
+
+                        {/* Info Pendapatan untuk Kupon Gratis */}
+                        {items.some(i => i.isFreeVoucher) && (
+                            <div style={{
+                                marginTop: '0.75rem',
+                                padding: '0.75rem',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                borderRadius: 'var(--radius)',
+                                border: '1px solid #10b981'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#10b981', fontWeight: 'bold' }}>
+                                    <span>💡 Pendapatan Tercatat (untuk laporan):</span>
+                                    <span>Rp {calculateRevenueTotal().toLocaleString()}</span>
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                    *Jasa dengan kupon gratis tetap tercatat sebagai pendapatan
+                                </div>
+                            </div>
+                        )}
                     </div>
 
-                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                        <button className="btn btn-primary" style={{ flex: 1, padding: '0.8rem' }} onClick={handleSaveAndComplete}>
+                    <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+                        <button className="btn btn-primary" style={{ flex: '1 1 200px', padding: '0.8rem' }} onClick={handleSaveAndComplete}>
                             <Save size={18} /> Simpan & Selesai
                         </button>
-                        <button className="btn btn-outline" style={{ flex: 1 }} onClick={async () => {
+                        <button className="btn btn-outline" style={{ flex: '1 1 150px' }} onClick={async () => {
                             try {
                                 await onUpdateProgress({ ...service, items, complaint: note, mechanicId, kilometer });
                                 alert('Draft berhasil disimpan.');
@@ -546,7 +748,7 @@ export default function ServiceProcessForm({ service, onSave, onCancel, onRevert
                         }}>
                             Simpan Draft
                         </button>
-                        <button className="btn btn-outline" style={{ flex: 1, borderColor: 'var(--danger)', color: 'var(--danger)' }} onClick={() => onRevert(service)}>
+                        <button className="btn btn-outline" style={{ flex: '1 1 100px', borderColor: 'var(--danger)', color: 'var(--danger)' }} onClick={() => onRevert(service)}>
                             Batal
                         </button>
                     </div>

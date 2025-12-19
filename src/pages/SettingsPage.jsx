@@ -12,6 +12,7 @@ export default function SettingsPage({ user }) {
     const [workshopAddress, setWorkshopAddress] = useState('');
     const [workshopMotto, setWorkshopMotto] = useState('');
     const [workshopPhone, setWorkshopPhone] = useState('');
+    const [printerName, setPrinterName] = useState('EPSON');
 
     const [mechanics, setMechanics] = useState([]);
     const [services, setServices] = useState(mockServices);
@@ -85,6 +86,7 @@ export default function SettingsPage({ user }) {
                 setWorkshopAddress(settings.workshopAddress || '');
                 setWorkshopMotto(settings.workshopMotto || 'Terima kasih atas kunjungan Anda');
                 setWorkshopPhone(settings.workshopPhone || '');
+                setPrinterName(settings.printer_name || 'EPSON');
             }
         } catch (err) {
             console.error("Failed to fetch settings", err);
@@ -275,6 +277,22 @@ export default function SettingsPage({ user }) {
         }
     };
 
+    const handleUpdateService = async (id, data) => {
+        try {
+            const dataToSend = {
+                name: data.name.trim(),
+                group: data.group || null,
+                price: parseInt(data.price)
+            };
+            await api.updateService(id, dataToSend);
+            fetchServices();
+            alert('Jasa berhasil diupdate!');
+        } catch (err) {
+            console.error("Failed to update service", err);
+            alert('Gagal mengupdate jasa');
+        }
+    };
+
     const handleAddMechanic = async () => {
         if (!newMechanic.name?.trim()) {
             alert('Nama karyawan harus diisi!');
@@ -316,7 +334,8 @@ export default function SettingsPage({ user }) {
                 workshopName,
                 workshopAddress,
                 workshopMotto,
-                workshopPhone
+                workshopPhone,
+                printer_name: printerName
             });
             alert('✅ Pengaturan Bengkel Disimpan!');
         } catch (err) {
@@ -397,6 +416,19 @@ export default function SettingsPage({ user }) {
                                 <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Motto / Pesan Struk</label>
                                 <input type="text" className="input" value={workshopMotto} onChange={(e) => setWorkshopMotto(e.target.value)} />
                             </div>
+                            <div className="input-group" style={{ marginBottom: '1rem' }}>
+                                <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>Nama Share Printer (Windows)</label>
+                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                    <input type="text" className="input" style={{ flex: '1 1 200px' }} value={printerName} onChange={(e) => setPrinterName(e.target.value)} placeholder="EPSON" />
+                                    <button className="btn btn-outline" onClick={async () => {
+                                        try {
+                                            await api.printNetworkTest();
+                                            alert('Test Print Terkirim ke Server!');
+                                        } catch (e) { alert('Test Gagal: ' + e.message); }
+                                    }}>Test</button>
+                                </div>
+                                <small style={{ color: 'var(--text-muted)' }}>Pastikan printer di-share di : Settings &gt; Printers &gt; Properties &gt; Sharing. Isi nama share di sini.</small>
+                            </div>
                             <button className="btn btn-primary" onClick={handleSaveWorkshopProfile}>
                                 <Save size={18} /> Simpan Perubahan
                             </button>
@@ -411,8 +443,10 @@ export default function SettingsPage({ user }) {
                         setNewService={setNewService}
                         handleAddService={handleAddService}
                         handleDeleteService={handleDeleteService}
+                        handleUpdateService={handleUpdateService}
                     />
                 )}
+
 
                 {activeTab === 'mechanics' && (
                     <div>
