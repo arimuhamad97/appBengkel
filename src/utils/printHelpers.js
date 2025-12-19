@@ -133,7 +133,7 @@ export const formatInvoice = (service, settings = {}, mechanicName = '-') => {
         return ' '.repeat(Math.floor(padding)) + str + ' '.repeat(Math.ceil(padding));
     };
 
-    const width = 80;
+    const width = 78; // Reduced from 80 to match SPK and prevent cut-off
     const line = '-'.repeat(width);
     const newline = '\n';
 
@@ -151,31 +151,34 @@ export const formatInvoice = (service, settings = {}, mechanicName = '-') => {
 
     const grandTotal = grossJasa + grossPart - totalDisc;
 
-    let txt = newline.repeat(2);
+    let txt = ''; // Removed leading newlines to reduce top margin
 
     txt += center((settings.workshopName || 'BENGKEL MOTOR').toUpperCase(), width) + newline;
-    if (settings.workshopAddress) txt += center(settings.workshopAddress, width) + newline;
-    if (settings.workshopPhone) txt += center(`HP: ${settings.workshopPhone}`, width) + newline;
 
-    txt += newline;
-    txt += center(`INVOICE / NOTA LUNAS`, width) + newline;
-    txt += center(`INV-${service.id}`, width) + newline;
+    let subHeader = settings.workshopAddress || '';
+    if (settings.workshopPhone) subHeader += ` | ${settings.workshopPhone}`;
+    txt += center(subHeader, width) + newline;
+
     txt += line + newline;
 
-    const row1 = pad(`Tgl   : ${new Date(service.payment_date || service.date).toLocaleDateString('id-ID')}`, 40) + `Kepada Yth:`;
-    const row2 = pad(`Nopol : ${service.plateNumber}`, 40) + `${service.customerName.toUpperCase()}`;
+    // Metadata Consolidated
+    const r1Left = `No. Inv : INV-${service.id}`;
+    const r1Right = `Kepada Yth: ${service.customerName.toUpperCase().substring(0, 25)}`;
 
-    txt += row1 + newline;
-    txt += row2 + newline;
+    const r2Left = `Tgl     : ${new Date(service.payment_date || service.date).toLocaleDateString('id-ID')}`;
+    const r2Right = `Motor     : ${service.bikeModel.substring(0, 15)} / ${service.plateNumber}`;
+
+    txt += pad(r1Left, 40) + r1Right + newline;
+    txt += pad(r2Left, 40) + r2Right + newline;
     txt += line + newline;
 
     // Table Header
-    txt += pad("KETERANGAN", 45) + padL("QTY", 5) + padL("HARGA", 15) + padL("TOTAL", 15) + newline;
+    txt += pad("KETERANGAN", 43) + padL("QTY", 5) + padL("HARGA", 15) + padL("TOTAL", 15) + newline;
     txt += line + newline;
 
     const renderItem = (item) => {
         const isFree = item.isFreeVoucher;
-        let name = item.name.substring(0, 43);
+        let name = item.name.substring(0, 41); // Reduced substring limit
         if (isFree) name += " [GRATIS]";
 
         const price = isFree ? 0 : item.price;
@@ -183,7 +186,7 @@ export const formatInvoice = (service, settings = {}, mechanicName = '-') => {
         // HTML logic: Row displays (Price * Qty). Discount row below.
         const rowTotal = price * item.q;
 
-        let res = pad(name, 45) + padL(item.q.toString(), 5) + padL(price.toLocaleString(), 15) + padL(rowTotal.toLocaleString(), 15) + newline;
+        let res = pad(name, 43) + padL(item.q.toString(), 5) + padL(price.toLocaleString(), 15) + padL(rowTotal.toLocaleString(), 15) + newline;
 
         if (item.discount > 0 && !isFree) {
             const discVal = item.discount * item.q;
@@ -212,27 +215,29 @@ export const formatInvoice = (service, settings = {}, mechanicName = '-') => {
 
     // Totals Breakdown
     if (grossJasa > 0) {
-        txt += pad("Total Jasa", 60) + padL("Rp " + grossJasa.toLocaleString(), 20) + newline;
+        txt += pad("Total Jasa", 58) + padL("Rp " + grossJasa.toLocaleString(), 20) + newline;
     }
     if (grossPart > 0) {
-        txt += pad("Total Sparepart", 60) + padL("Rp " + grossPart.toLocaleString(), 20) + newline;
+        txt += pad("Total Sparepart", 58) + padL("Rp " + grossPart.toLocaleString(), 20) + newline;
     }
     if (totalDisc > 0) {
-        txt += pad("Total Potongan/Diskon", 60) + padL("-Rp " + totalDisc.toLocaleString(), 20) + newline;
+        txt += pad("Total Potongan/Diskon", 58) + padL("-Rp " + totalDisc.toLocaleString(), 20) + newline;
     }
 
     txt += line + newline;
-    txt += pad("TOTAL BAYAR", 55) + padL("RP " + grandTotal.toLocaleString(), 25) + newline;
+    txt += pad("TOTAL BAYAR", 53) + padL("RP " + grandTotal.toLocaleString(), 25) + newline;
     txt += line + newline;
 
     txt += center(settings.workshopMotto || 'Terima Kasih atas Kepercayaan Anda', width) + newline;
-    txt += newline.repeat(2);
+    txt += newline;
 
-    // Signature
-    txt += pad("     Hormat Kami,", 40) + "Penerima," + newline;
+    // Signature - Swapped & Simplified (No Underlines/Parentheses)
+    // Left: Mekanik, Right: Hormat Kami
+    txt += pad("     Mekanik", 45) + "Hormat Kami" + newline;
+    txt += newline.repeat(3);
+    // Names
+    txt += pad(`     ${mechanicName.substring(0, 25)}`, 45) + "Admin" + newline;
+
     txt += newline.repeat(4);
-    txt += pad("     ( Admin )", 40) + `( ${mechanicName.substring(0, 18)} )` + newline;
-
-    txt += newline.repeat(6);
     return txt;
 };

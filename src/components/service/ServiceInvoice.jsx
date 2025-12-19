@@ -239,8 +239,10 @@ Gunakan Browser Print sebagai alternatif?
                         {`
                             @media print {
                                 @page {
-                                    size: 8.5in 5.5in landscape;
-                                    margin: 0.35in 0.4in 0.25in 0.3in;
+                                    /* Match SPK size - usually ensures correct driver handling for half-page dot matrix if declared as letter landscape */
+                                    size: 11in 8.5in landscape; 
+                                    /* Reduce top margin significantly as per user request (was 0.35in) */
+                                    margin: 0.1in 0.2in 0.1in 0.2in;
                                 }
                                 body {
                                     margin: 0;
@@ -248,9 +250,8 @@ Gunakan Browser Print sebagai alternatif?
                                     background: white;
                                     color: black;
                                     font-family: "Courier New", Courier, monospace;
-                                    font-size: 12pt; 
-                                    font-weight: bold;
-                                    line-height: 1.0;
+                                    font-size: 10pt; /* Reduced from 12pt to fix cut-off */
+                                    line-height: 1.1;
                                     -webkit-font-smoothing: none;
                                     text-rendering: optimizeLegibility;
                                 }
@@ -262,38 +263,38 @@ Gunakan Browser Print sebagai alternatif?
                                 .header-container {
                                     text-align: center;
                                     border-bottom: 2px solid #000;
-                                    padding-bottom: 4px;
-                                    margin-bottom: 6px;
+                                    padding-bottom: 2px;
+                                    margin-bottom: 4px;
                                 }
                                 h1 {
-                                    font-size: 16pt;
+                                    font-size: 14pt; /* Reduced from 16pt */
                                     margin: 0;
                                     text-transform: uppercase;
                                     letter-spacing: 1px;
                                     font-weight: 900;
                                 }
                                 .sub-header {
-                                    font-size: 10pt;
-                                    margin: 2px 0;
+                                    font-size: 9pt; /* Reduced from 10pt */
+                                    margin: 0;
                                 }
                                 .meta-grid {
                                     display: flex;
                                     justify-content: space-between;
-                                    margin-bottom: 6px;
-                                    font-size: 11pt;
+                                    margin-bottom: 4px;
+                                    font-size: 10pt; /* Match body */
                                 }
                                 .section-title {
-                                    font-size: 13pt;
+                                    font-size: 11pt; /* Reduced from 13pt */
                                     font-weight: 900;
                                     text-decoration: underline;
-                                    margin-top: 10px;
-                                    margin-bottom: 3px;
+                                    margin-top: 5px;
+                                    margin-bottom: 2px;
                                 }
                                 table {
                                     width: 100%;
                                     border-collapse: collapse;
                                     table-layout: fixed;
-                                    margin-bottom: 4px;
+                                    margin-bottom: 2px;
                                     page-break-inside: auto;
                                 }
                                 tr {
@@ -303,7 +304,7 @@ Gunakan Browser Print sebagai alternatif?
                                 td {
                                     padding: 0;
                                     vertical-align: top;
-                                    font-size: 11pt;
+                                    font-size: 10pt; /* Match body */
                                 }
                                 .text-right { text-align: right; }
                                 .text-center { text-align: center; }
@@ -315,25 +316,25 @@ Gunakan Browser Print sebagai alternatif?
                                     page-break-inside: avoid;
                                 }
                                 .total-section td {
-                                    font-size: 12pt;
+                                    font-size: 11pt; /* Reduced from 12/16pt */
                                     padding: 0;
                                 }
                                 .footer {
-                                    margin-top: 10px;
+                                    margin-top: 5px;
                                     text-align: center;
-                                    font-size: 10pt;
+                                    font-size: 9pt;
                                     page-break-inside: avoid;
                                 }
                                 .signature-section {
                                     display: flex;
                                     justify-content: space-between;
-                                    margin-top: 10px;
+                                    margin-top: 5px;
                                     page-break-inside: avoid;
                                 }
                                 .signature-box {
                                     width: 150px;
                                     text-align: center;
-                                    font-size: 11pt;
+                                    font-size: 10pt;
                                 }
                             }
                         `}
@@ -357,8 +358,8 @@ Gunakan Browser Print sebagai alternatif?
                                 <div>Tanggal : {formatDate(service.payment_date || service.date)}</div>
                             </div>
                             <div className="text-right">
-                                <div>Kpd Yth: <strong>{service.customerName.toUpperCase()}</strong></div>
-                                <div>{service.plateNumber} / {service.bikeModel}</div>
+                                <div>Kepada Yth: <strong>{service.customerName.toUpperCase()}</strong></div>
+                                <div>Motor: {service.bikeModel} / {service.plateNumber}</div>
                             </div>
                         </div>
 
@@ -464,12 +465,12 @@ Gunakan Browser Print sebagai alternatif?
                         {/* TANDA TANGAN */}
                         <div className="signature-section">
                             <div className="signature-box">
-                                <div style={{ marginBottom: '40px' }}>Mekanik</div>
-                                <div style={{ borderTop: '1px solid #000', whiteSpace: 'nowrap' }}>{mechanic?.name || '-'}</div>
+                                <div style={{ marginBottom: '30px' }}>Mekanik</div>
+                                <div style={{ whiteSpace: 'nowrap' }}>{mechanic?.name || '-'}</div>
                             </div>
                             <div className="signature-box">
-                                <div style={{ marginBottom: '40px' }}>Hormat Kami</div>
-                                <div style={{ borderTop: '1px solid #000' }}>Admin</div>
+                                <div style={{ marginBottom: '30px' }}>Hormat Kami</div>
+                                <div>Admin</div>
                             </div>
                         </div>
 
