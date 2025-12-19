@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Bengkel Motor - Akses Cepat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+            border-radius: 8px;
+        }
+
+        .info-box h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .info-box p {
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        .url-display {
+            background: #2d3748;
+            color: #48bb78;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 1.2em;
+            margin: 20px 0;
+            word-break: break-all;
+        }
+
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 40px;
+            border-radius: 50px;
+            text-decoration: none;
+            font-size: 1.2em;
+            font-weight: bold;
+            margin: 20px 10px;
+            transition: transform 0.3s, box-shadow 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            box-shadow: 0 4px 15px rgba(72, 187, 120, 0.4);
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 6px 20px rgba(72, 187, 120, 0.6);
+        }
+
+        .instructions {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e2e8f0;
+        }
+
+        .instructions h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .instructions ol {
+            text-align: left;
+            margin-left: 20px;
+            color: #555;
+            line-height: 1.8;
+        }
+
+        .instructions li {
+            margin-bottom: 10px;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin: 10px 0;
+        }
+
+        .status.online {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .status.offline {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 1.5em;
+            }
+
+            .btn {
+                display: block;
+                margin: 10px 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔧 Aplikasi Bengkel Motor</h1>
+        <p class="subtitle">Sistem Manajemen Bengkel Terintegrasi</p>
+
+        <div id="status-indicator"></div>
+
+        <div class="info-box">
+            <h3>📍 Alamat Akses Aplikasi</h3>
+            <div class="url-display" id="app-url">http://192.168.1.100:5173</div>
+        </div>
+
+        <a href="http://192.168.1.100:5173" class="btn" id="main-btn">
+            🚀 Buka Aplikasi Sekarang
+        </a>
+
+        <a href="#" class="btn btn-secondary" id="bookmark-btn" onclick="addBookmark(); return false;">
+            ⭐ Tambah ke Bookmark
+        </a>
+
+        <div class="instructions">
+            <h3>📖 Cara Akses Mudah</h3>
+            <ol>
+                <li><strong>Bookmark Browser:</strong> Klik tombol "Tambah ke Bookmark" di atas atau tekan Ctrl+D saat
+                    aplikasi terbuka</li>
+                <li><strong>Shortcut Desktop:</strong> Jalankan file <code>buat-shortcut-client.bat</code> untuk membuat
+                    shortcut di Desktop</li>
+                <li><strong>Domain Lokal:</strong> Jalankan file <code>setup-domain-lokal.bat</code> sebagai
+                    Administrator untuk akses via <code>http://bengkel.local:5173</code></li>
+                <li><strong>Auto Start:</strong> Copy file <code>buka-bengkel-fullscreen.bat</code> ke folder Startup
+                    Windows</li>
+            </ol>
+        </div>
+
+        <div class="info-box" style="margin-top: 30px;">
+            <h3>ℹ️ Informasi</h3>
+            <p><strong>IP Server:</strong> <span id="server-ip">192.168.1.100</span></p>
+            <p><strong>Port Frontend:</strong> 5173</p>
+            <p><strong>Port Backend:</strong> 3001</p>
+            <p style="margin-top: 15px; font-size: 0.9em; color: #888;">
+                Jika IP server berbeda, edit file ini dan ganti semua <code>192.168.1.100</code> dengan IP server yang
+                benar.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Konfigurasi - Ganti dengan IP server Anda
+        const SERVER_IP = '192.168.1.100';
+        const SERVER_PORT = '5173';
+        const APP_URL = `http://${SERVER_IP}:${SERVER_PORT}`;
+
+        // Update semua URL di halaman
+        document.getElementById('app-url').textContent = APP_URL;
+        document.getElementById('main-btn').href = APP_URL;
+        document.getElementById('server-ip').textContent = SERVER_IP;
+
+        // Fungsi untuk cek status server
+        async function checkServerStatus() {
+            const statusDiv = document.getElementById('status-indicator');
+            try {
+                const response = await fetch(APP_URL, {
+                    method: 'HEAD',
+                    mode: 'no-cors',
+                    cache: 'no-cache'
+                });
+                statusDiv.innerHTML = '<span class="status online">✓ Server Online</span>';
+            } catch (error) {
+                statusDiv.innerHTML = '<span class="status offline">✗ Server Offline - Pastikan aplikasi sudah running</span>';
+            }
+        }
+
+        // Fungsi untuk menambah bookmark
+        function addBookmark() {
+            if (window.sidebar && window.sidebar.addPanel) {
+                // Firefox
+                window.sidebar.addPanel('Aplikasi Bengkel Motor', APP_URL, '');
+            } else if (window.external && ('AddFavorite' in window.external)) {
+                // IE
+                window.external.AddFavorite(APP_URL, 'Aplikasi Bengkel Motor');
+            } else if (window.opera && window.print) {
+                // Opera
+                var elem = document.createElement('a');
+                elem.setAttribute('href', APP_URL);
+                elem.setAttribute('title', 'Aplikasi Bengkel Motor');
+                elem.setAttribute('rel', 'sidebar');
+                elem.click();
+            } else {
+                // Chrome, Edge, Safari
+                alert('Tekan Ctrl+D (Windows) atau Cmd+D (Mac) untuk menambahkan bookmark.\n\nAtau klik ikon bintang (★) di address bar browser Anda.');
+            }
+        }
+
+        // Auto-redirect setelah 3 detik jika user tidak klik apa-apa
+        let autoRedirectTimer = null;
+
+        function startAutoRedirect() {
+            autoRedirectTimer = setTimeout(() => {
+                window.location.href = APP_URL;
+            }, 5000); // 5 detik
+        }
+
+        // Cancel auto-redirect jika user berinteraksi
+        document.addEventListener('click', () => {
+            if (autoRedirectTimer) {
+                clearTimeout(autoRedirectTimer);
+                autoRedirectTimer = null;
+            }
+        });
+
+        // Cek status saat halaman dimuat
+        checkServerStatus();
+
+        // Cek status setiap 10 detik
+        setInterval(checkServerStatus, 10000);
+
+        // Uncomment baris di bawah jika ingin auto-redirect
+        // startAutoRedirect();
+    </script>
+</body>
+
+</html>

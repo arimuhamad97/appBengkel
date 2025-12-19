@@ -6,6 +6,7 @@ import ServiceEntryForm from '../components/service/ServiceEntryForm';
 import ServiceInvoice from '../components/service/ServiceInvoice';
 import { api } from '../services/api';
 import { formatSPK } from '../utils/printHelpers';
+import { showPrintStatus } from '../utils/printUtils';
 
 export default function ServicePage() {
     // Helper for robust local date (YYYY-MM-DD)
@@ -256,16 +257,207 @@ export default function ServicePage() {
     // Function to execute print after preview
     const executePrint = async () => {
         if (!previewData) return;
+
         try {
-            await api.printJob(previewData.text);
-            alert('✅ Print Job Terkirim ke Server!');
-            setPreviewText(null); // Close preview
-            setPreviewData(null);
-        } catch (e) {
-            alert('❌ Gagal ke Server: ' + e.message + '\nMencoba print lokal via Browser...');
+            // Show loading notification
+            showPrintStatus('info', 'Mengirim print job ke server...');
+
+            // Send to server
+            const result = await api.printJob(previewData.text);
+
+            // Check if server responded with error
+            if (result && result.error) {
+                throw new Error(result.error);
+            }
+
+            // Success notification
+            showPrintStatus('success', `Print job berhasil dikirim ke printer ${previewData.printer}!`);
+
             setPreviewText(null);
             setPreviewData(null);
+
+        } catch (e) {
+            console.error('Print error:', e);
+
+            // Determine error type and show appropriate message
+            let errorMessage = e.message || 'Unknown error';
+            let errorTitle = 'Gagal Mencetak';
+            let suggestions = [];
+
+            // Check for specific error types
+            if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('Network')) {
+                errorTitle = 'Server Tidak Terhubung';
+                suggestions = [
+                    'Pastikan server backend berjalan',
+                    'Periksa koneksi jaringan',
+                    'Restart server jika diperlukan'
+                ];
+            } else if (errorMessage.includes('printer') || errorMessage.includes('PRINTER')) {
+                errorTitle = 'Printer Tidak Tersedia';
+                suggestions = [
+                    'Pastikan printer dalam keadaan menyala (power ON)',
+                    'Periksa koneksi kabel printer ke server',
+                    'Pastikan printer tidak sedang error atau paper jam',
+                    'Cek apakah printer terdeteksi di sistem',
+                    'Restart printer dan coba lagi'
+                ];
+            } else if (errorMessage.includes('timeout') || errorMessage.includes('TIMEOUT')) {
+                errorTitle = 'Printer Tidak Merespon';
+                suggestions = [
+                    'Printer mungkin sedang offline atau mati',
+                    'Periksa status printer di komputer server',
+                    'Pastikan printer tidak sedang digunakan aplikasi lain',
+                    'Coba restart printer'
+                ];
+            }
+
+            // Build detailed error message
+            const detailedMessage = `
+❌ ${errorTitle}
+
+Error: ${errorMessage}
+
+Kemungkinan Penyebab:
+${suggestions.map(s => `• ${s}`).join('\n')}
+
+Solusi:
+1. Periksa status printer di komputer server
+2. Pastikan printer menyala dan terhubung
+3. Restart printer jika diperlukan
+4. Hubungi IT support jika masalah berlanjut
+
+Apakah Anda ingin mencoba lagi?
+            `.trim();
+
+            // Show error notification
+            showPrintStatus('error', errorTitle + ': ' + errorMessage);
+
+            // Ask user if they want to retry
+            if (confirm(detailedMessage)) {
+                // Retry print
+                executePrint();
+            } else {
+                // Close preview
+                setPreviewText(null);
+                setPreviewData(null);
+            }
         }
+    };
+
+    // Function for local browser print (direct to client printer)
+    const handlePrintLocal = () => {
+        if (!previewText) return;
+
+        // Create print window
+        const printWindow = window.open('', '_blank', 'width=800,height=600');
+
+        if (!printWindow) {
+            alert('Popup diblokir! Izinkan popup untuk print lokal.');
+            return;
+        }
+
+        // Write content to print window with LANDSCAPE orientation (same as server)
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Print SPK</title>
+                <meta charset="UTF-8">
+                <style>
+                    /* Page Setup - K2 Half Page LANDSCAPE (same as server) */
+                    @page {
+                        size: 11in 8.5in landscape;
+                        margin: 0.3in 0.4in 0.25in 0.3in;
+                    }
+                    
+                    /* Body - Optimized for Dot Matrix LANDSCAPE */
+                    body {
+                        margin: 0;
+                        padding: 0;
+                        font-family: "Courier New", Courier, monospace;
+                        font-size: 10pt;
+                        line-height: 1.1;
+                        white-space: pre;
+                        color: #000;
+                        background: #fff;
+                        -webkit-print-color-adjust: exact;
+                        print-color-adjust: exact;
+                    }
+                    
+                    /* Print Media - Force exact rendering */
+                    @media print {
+                        * {
+                            -webkit-print-color-adjust: exact !important;
+                            print-color-adjust: exact !important;
+                            color: #000 !important;
+                        }
+                        
+                        body {
+                            margin: 0 !important;
+                            padding: 0 !important;
+                            font-size: 10pt !important;
+                            line-height: 1.1 !important;
+                        }
+                        
+                        /* Remove browser defaults */
+                        html, body {
+                            width: 100%;
+                            height: 100%;
+                        }
+                        
+                        /* Prevent page breaks */
+                        * {
+                            page-break-inside: avoid;
+                        }
+                    }
+                    
+                    /* Screen Preview */
+                    @media screen {
+                        body {
+                            padding: 0.5in;
+                            background: #f0f0f0;
+                        }
+                        
+                        body::before {
+                            content: "Preview - Ukuran kertas: K2 Landscape (11in x 8.5in)";
+                            display: block;
+                            background: #333;
+                            color: #fff;
+                            padding: 0.5rem;
+                            margin: -0.5in -0.5in 0.5in -0.5in;
+                            font-family: Arial, sans-serif;
+                            font-size: 12px;
+                        }
+                    }
+                </style>
+            </head>
+            <body>${previewText}</body>
+            </html>
+        `);
+        printWindow.document.close();
+
+        // Wait for content to load then print
+        printWindow.onload = () => {
+            // Small delay to ensure fonts are loaded
+            setTimeout(() => {
+                printWindow.focus();
+                printWindow.print();
+
+                // Close after print dialog closes
+                printWindow.onafterprint = () => {
+                    setTimeout(() => {
+                        printWindow.close();
+                    }, 500);
+                };
+            }, 250);
+        };
+
+        // Close preview
+        setPreviewText(null);
+        setPreviewData(null);
+
+        // Show notification
+        showPrintStatus('info', 'Browser print dialog dibuka. Pastikan pilih ukuran kertas K2 Landscape (11" x 8.5").');
     };
 
     const handleCancelPayment = async (service) => {
@@ -418,10 +610,32 @@ export default function ServicePage() {
                             {previewText}
                         </div>
 
-                        <div style={{ marginTop: '1rem', width: '100%', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                        <div style={{ marginTop: '1rem', width: '100%', display: 'flex', gap: '1rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                             <button className="btn btn-outline" style={{ borderColor: '#fff', color: '#fff' }} onClick={() => setPreviewText(null)}>Batal</button>
-                            <button className="btn btn-primary" onClick={executePrint}>
-                                <Printer size={18} /> Cetak Sekarang ({previewData?.printer})
+                            <button
+                                className="btn btn-outline"
+                                style={{
+                                    borderColor: '#10b981',
+                                    color: '#10b981',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.5rem'
+                                }}
+                                onClick={handlePrintLocal}
+                                title="Print langsung ke printer lokal/network"
+                            >
+                                <Printer size={18} /> Print Lokal
+                            </button>
+                            <button
+                                className="btn btn-primary"
+                                onClick={executePrint}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.5rem'
+                                }}
+                            >
+                                <Printer size={18} /> Cetak ke Server ({previewData?.printer})
                             </button>
                         </div>
                     </div>

@@ -35,10 +35,16 @@ export default function MechanicReport() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [mechanicsList, queueData] = await Promise.all([
+            const [allUsers, queueData] = await Promise.all([
                 api.getMechanics(),
                 api.getQueue()
             ]);
+
+            // Filter mechanics only (case-insensitive: 'mechanic' or 'mekanik')
+            const mechanicsList = allUsers.filter(u => {
+                const r = (u.role || '').toLowerCase();
+                return r === 'mechanic' || r === 'mekanik';
+            });
 
             // Filter queue by date and status (Done/Paid)
             const filteredQueue = queueData.filter(q => {

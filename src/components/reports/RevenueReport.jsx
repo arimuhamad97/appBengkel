@@ -16,6 +16,9 @@ export default function RevenueReport() {
         services: [],
         sales: [],
         expenses: [],
+        grossRevenue: 0,
+        voucherDiscount: 0,
+        netRevenue: 0,
         totalRevenue: 0,
         totalExpenses: 0,
         netProfit: 0,
@@ -89,40 +92,48 @@ export default function RevenueReport() {
                 return sDate >= startDate && sDate <= endDate;
             });
 
-            // Calculate totals
-            const serviceRevenue = servicesInRange.reduce((sum, s) => {
+            // Calculate totals - NEW LOGIC:
+            // 1. Gross Revenue = semua item (termasuk gratis pakai originalPrice)
+            // 2. Voucher Discount = total nilai item gratis
+            // 3. Net Revenue = Gross - Voucher Discount
+
+            let grossServiceRevenue = 0;
+            let voucherDiscount = 0;
+
+            servicesInRange.forEach(s => {
                 try {
                     const items = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-                    if (!Array.isArray(items)) return sum;
-                    const total = items.reduce((itemSum, item) => {
-                        // Untuk item dengan kupon gratis, gunakan originalPrice untuk pendapatan
+                    if (!Array.isArray(items)) return;
+
+                    items.forEach(item => {
                         if (item.isFreeVoucher && item.originalPrice) {
-                            return itemSum + (item.originalPrice * (item.q || 0));
+                            // Item gratis: tambah ke gross, tambah ke voucher discount
+                            const voucherValue = item.originalPrice * (item.q || 0);
+                            grossServiceRevenue += voucherValue;
+                            voucherDiscount += voucherValue;
+                        } else {
+                            // Item normal: tambah ke gross saja
+                            const price = item.price || 0;
+                            const discount = item.discount || 0;
+                            const quantity = item.q || 0;
+                            grossServiceRevenue += ((price - discount) * quantity);
                         }
-                        // Untuk item normal, hitung: (price - discount) * quantity
-                        const price = item.price || 0;
-                        const discount = item.discount || 0;
-                        const quantity = item.q || 0;
-                        return itemSum + ((price - discount) * quantity);
-                    }, 0);
-                    return sum + total;
+                    });
                 } catch (e) {
                     console.error('Failed to parse service items:', e);
-                    return sum;
                 }
-            }, 0);
+            });
 
             const salesRevenue = salesInRange.reduce((sum, s) => sum + (s.total || 0), 0);
 
             // Calculate Total Expenses
-            // Note: api.getExpenses already filters by date range on backend, but let's be safe if format differs or if we want to trust backend results directly.
-            // Actually, backend returns filtered list.
             const totalExpenses = Array.isArray(expensesData)
                 ? expensesData.reduce((sum, e) => sum + (e.amount || 0), 0)
                 : 0;
 
-            const totalRevenue = serviceRevenue + salesRevenue;
-            const netProfit = totalRevenue - totalExpenses;
+            const grossRevenue = grossServiceRevenue + salesRevenue;
+            const netRevenue = grossRevenue - voucherDiscount;
+            const netProfit = netRevenue - totalExpenses;
 
             // Combine sales from direct sales and spareparts used in services (for detail view only, not gross calc)
             const directSales = salesInRange.map(s => {
@@ -146,10 +157,10 @@ export default function RevenueReport() {
                         items.forEach(item => {
                             // Check for both 'part' and 'Part' (case-insensitive)
                             if (item.type && item.type.toLowerCase() === 'part') {
-                                // Hitung total_price: untuk item gratis gunakan originalPrice, untuk normal gunakan (price - discount)
+                                // Hitung total_price: untuk item gratis = 0 (tidak dihitung), untuk normal gunakan (price - discount)
                                 let totalPrice;
-                                if (item.isFreeVoucher && item.originalPrice) {
-                                    totalPrice = item.originalPrice * (item.q || 0);
+                                if (item.isFreeVoucher) {
+                                    totalPrice = 0; // Item gratis tidak dihitung dalam pendapatan
                                 } else {
                                     const price = item.price || 0;
                                     const discount = item.discount || 0;
@@ -184,7 +195,10 @@ export default function RevenueReport() {
                 services: servicesInRange,
                 sales: allSales,
                 expenses: expensesData,
-                totalRevenue,
+                grossRevenue,
+                voucherDiscount,
+                netRevenue,
+                totalRevenue: netRevenue, // For backward compatibility
                 totalExpenses,
                 netProfit,
                 totalServices: servicesInRange.length,
@@ -216,10 +230,11 @@ export default function RevenueReport() {
                 }
                 itemMap[name].qty += (item.q || 0);
 
-                // Hitung total: untuk item gratis gunakan originalPrice, untuk normal gunakan (price - discount)
+                // Hitung total value (gunakan originalPrice untuk item gratis agar muncul nilainya di tabel)
                 let itemTotal;
-                if (item.isFreeVoucher && item.originalPrice) {
-                    itemTotal = item.originalPrice * (item.q || 0);
+                if (item.isFreeVoucher) {
+                    // Use originalPrice (or price if originalPrice not set) for free items
+                    itemTotal = (item.originalPrice || item.price || 0) * (item.q || 0);
                 } else {
                     const price = item.price || 0;
                     const discount = item.discount || 0;
@@ -230,6 +245,69 @@ export default function RevenueReport() {
         });
         return Object.values(itemMap).sort((a, b) => b.qty - a.qty);
     }, [data.sales]);
+
+    const aggregatedServices = React.useMemo(() => {
+        const serviceMap = {};
+        data.services.forEach(service => {
+            let items = [];
+            try {
+                items = typeof service.items === 'string' ? JSON.parse(service.items) : service.items;
+                if (!Array.isArray(items)) items = [];
+            } catch (e) { console.error(e); }
+
+            items.forEach(item => {
+                // Only process Service type items
+                if (item.type && item.type.toLowerCase() === 'service') {
+                    const name = item.name || 'Unknown Service';
+                    if (!serviceMap[name]) {
+                        serviceMap[name] = { name, count: 0, total: 0 };
+                    }
+                    serviceMap[name].count += (item.q || 1); // Count occurrences
+
+                    // Calculate total value (use originalPrice for free vouchers to show value in table)
+                    let itemTotal;
+                    if (item.isFreeVoucher) {
+                        // Use originalPrice (or price if originalPrice not set) for free items
+                        itemTotal = (item.originalPrice || item.price || 0) * (item.q || 1);
+                    } else {
+                        const price = item.price || 0;
+                        const discount = item.discount || 0;
+                        itemTotal = (price - discount) * (item.q || 1);
+                    }
+                    serviceMap[name].total += itemTotal;
+                }
+            });
+        });
+        return Object.values(serviceMap).sort((a, b) => b.count - a.count);
+    }, [data.services]);
+
+    // Aggregate Vouchers Data Helper (For Detailed Coupon Breakdown)
+    const aggregatedVouchers = React.useMemo(() => {
+        const voucherMap = {};
+        data.services.forEach(service => {
+            let items = [];
+            try {
+                items = typeof service.items === 'string' ? JSON.parse(service.items) : service.items;
+                if (!Array.isArray(items)) items = [];
+            } catch (e) { console.error(e); }
+
+            items.forEach(item => {
+                if (item.isFreeVoucher) {
+                    const name = item.name || 'Unknown Voucher';
+                    if (!voucherMap[name]) {
+                        voucherMap[name] = { name, count: 0, total: 0 };
+                    }
+                    // Use q if available, otherwise 1
+                    const qty = item.q || 1;
+                    voucherMap[name].count += qty;
+                    // Calculate value using originalPrice
+                    const val = (item.originalPrice || item.price || 0) * qty;
+                    voucherMap[name].total += val;
+                }
+            });
+        });
+        return Object.values(voucherMap).sort((a, b) => b.total - a.total);
+    }, [data.services]);
 
 
 
@@ -266,16 +344,26 @@ export default function RevenueReport() {
                 
                 <div class="summary">
                     <div class="summary-card">
-                        <h3>Pendapatan Kotor</h3>
-                        <div class="value">Rp ${data.totalRevenue.toLocaleString('id-ID')}</div>
+                        <h3>Penjualan</h3>
+                        <div class="value">Rp ${data.grossRevenue.toLocaleString('id-ID')}</div>
+                    </div>
+                    ${data.voucherDiscount > 0 ? `
+                    <div class="summary-card">
+                        <h3>Potongan Kupon</h3>
+                        <div class="value" style="color: orange;">Rp ${data.voucherDiscount.toLocaleString('id-ID')}</div>
+                    </div>
+                    ` : ''}
+                    <div class="summary-card">
+                        <h3>Total</h3>
+                        <div class="value" style="color: green;">Rp ${data.netRevenue.toLocaleString('id-ID')}</div>
                     </div>
                     <div class="summary-card">
-                        <h3>Total Pengeluaran</h3>
+                        <h3>Pengeluaran</h3>
                         <div class="value" style="color: red;">Rp ${data.totalExpenses.toLocaleString('id-ID')}</div>
                     </div>
                     <div class="summary-card">
                         <h3>Laba Bersih</h3>
-                        <div class="value" style="color: green;">Rp ${data.netProfit.toLocaleString('id-ID')}</div>
+                        <div class="value" style="color: ${data.netProfit >= 0 ? 'green' : 'red'};">Rp ${data.netProfit.toLocaleString('id-ID')}</div>
                     </div>
                     <div class="summary-card">
                         <h3>Total Servis</h3>
@@ -289,75 +377,85 @@ export default function RevenueReport() {
 
 
 
-                <h2>Detail Servis</h2>
+                <h2>Detail Jasa Servis</h2>
                 <table>
                     <thead>
                         <tr>
                             <th>No</th>
-                            <th>Tanggal</th>
-                            <th>No. Antrian</th>
-                            <th>Pelanggan</th>
-                            <th>Plat</th>
-                            <th>Total</th>
+                            <th>Jenis Jasa</th>
+                            <th style="text-align: center;">Jumlah</th>
+                            <th style="text-align: right;">Total Nilai</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${data.services.map((s, i) => {
-            const items = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-            const total = items.reduce((sum, item) => {
-                // Item gratis tidak dihitung (customer bayar 0)
-                if (item.isFreeVoucher) return sum;
-                // Item normal: (price - discount) * quantity
-                return sum + ((item.price - (item.discount || 0)) * item.q);
-            }, 0);
-            return `
-                                <tr>
-                                    <td>${i + 1}</td>
-                                    <td>${new Date(s.date).toLocaleDateString('id-ID')}</td>
-                                    <td>${s.queueNumber}</td>
-                                    <td>${s.customerName}</td>
-                                    <td>${s.plateNumber}</td>
-                                    <td>Rp ${total.toLocaleString('id-ID')}</td>
-                                </tr>
-                            `;
-        }).join('')}
+                        ${aggregatedServices.map((s, i) => `
+                            <tr>
+                                <td>${i + 1}</td>
+                                <td>${s.name}</td>
+                                <td style="text-align: center;">${s.count}</td>
+                                <td style="text-align: right;">Rp ${s.total.toLocaleString('id-ID')}</td>
+                            </tr>
+                        `).join('')}
                         <tr class="total">
-                            <td colspan="5">TOTAL SERVIS</td>
-                            <td>Rp ${data.services.reduce((sum, s) => {
-            const items = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-            return sum + items.reduce((itemSum, item) => {
-                // Item gratis tidak dihitung
-                if (item.isFreeVoucher) return itemSum;
-                // Item normal: (price - discount) * quantity
-                return itemSum + ((item.price - (item.discount || 0)) * item.q);
-            }, 0);
-        }, 0).toLocaleString('id-ID')}</td>
+                            <td colspan="2">TOTAL</td>
+                            <td style="text-align: center;">${aggregatedServices.reduce((sum, s) => sum + s.count, 0)}</td>
+                            <td style="text-align: right;">Rp ${aggregatedServices.reduce((sum, s) => sum + s.total, 0).toLocaleString('id-ID')}</td>
                         </tr>
                     </tbody>
                 </table>
+
+                ${aggregatedVouchers.length > 0 ? `
+                <h2>Rincian Potongan Kupon</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No</th>
+                            <th>Nama Kupon / Item</th>
+                            <th style="text-align: center;">Jumlah</th>
+                            <th style="text-align: right;">Total Potongan</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${aggregatedVouchers.map((v, i) => `
+                            <tr>
+                                <td>${i + 1}</td>
+                                <td>${v.name}</td>
+                                <td style="text-align: center;">${v.count}</td>
+                                <td style="text-align: right;">Rp ${v.total.toLocaleString('id-ID')}</td>
+                            </tr>
+                        `).join('')}
+                        <tr class="total">
+                            <td colspan="2">TOTAL POTONGAN</td>
+                            <td style="text-align: center;">${aggregatedVouchers.reduce((sum, v) => sum + v.count, 0)}</td>
+                            <td style="text-align: right;">Rp ${aggregatedVouchers.reduce((sum, v) => sum + v.total, 0).toLocaleString('id-ID')}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                ` : ''}
 
                 <h2>Ringkasan Penjualan Sparepart</h2>
                 <table>
                     <thead>
                         <tr>
                             <th>No</th>
-                            <th>Nama Item</th>
-                            <th>Total Terjual (Qty)</th>
-                            <th>Total Nilai</th>
+                            <th>Nama Sparepart</th>
+                            <th style="text-align: center;">Terjual</th>
+                            <th style="text-align: right;">Total Nilai</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${aggregatedSales.map((item, i) => `
                             <tr>
-                                <td style="text-align: center;">${i + 1}</td>
+                                <td>${i + 1}</td>
                                 <td>${item.name}</td>
                                 <td style="text-align: center;">${item.qty}</td>
                                 <td style="text-align: right;">Rp ${item.total.toLocaleString('id-ID')}</td>
                             </tr>
                         `).join('')}
                         <tr class="total">
-                            <td colspan="3">TOTAL PENJUALAN</td>
-                            <td style="text-align: right;">Rp ${aggregatedSales.reduce((sum, s) => sum + s.total, 0).toLocaleString('id-ID')}</td>
+                            <td colspan="2">TOTAL</td>
+                            <td style="text-align: center;">${aggregatedSales.reduce((sum, i) => sum + i.qty, 0)}</td>
+                            <td style="text-align: right;">Rp ${aggregatedSales.reduce((sum, i) => sum + i.total, 0).toLocaleString('id-ID')}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -417,25 +515,50 @@ export default function RevenueReport() {
                 <style>
                     body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f4; }
                     .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-                    h2 { margin-top: 0; color: #333; border-bottom: 2px solid #0ea5e9; padding-bottom: 10px; }
-                    p { color: #666; }
-                    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
-                    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+                    h2 { margin-top: 0; color: #333; border-bottom: 2px solid #0ea5e9; padding-bottom: 10px; font-size: clamp(1.2rem, 4vw, 1.5rem); }
+                    p { color: #666; font-size: clamp(0.9rem, 3vw, 1rem); }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: clamp(0.75rem, 2.5vw, 0.875rem); }
+                    th, td { border: 1px solid #ccc; padding: clamp(6px, 2vw, 8px); text-align: left; }
                     th { background-color: #f0f9ff; font-weight: bold; }
                     .header-section { margin-bottom: 30px; }
-                    .summary-table { width: 50%; min-width: 300px; margin-bottom: 30px; }
+                    .summary-table { width: 100%; max-width: 500px; margin-bottom: 30px; }
                     .summary-table td:first-child { font-weight: bold; width: 60%; }
                     .amount { text-align: right; font-family: 'Courier New', monospace; }
-                    .section-title { margin-top: 30px; font-size: 18px; font-weight: bold; color: #444; border-left: 4px solid #0ea5e9; padding-left: 10px; }
-                    .actions { position: sticky; top: 0; background: #fff; padding: 15px 0; border-bottom: 1px solid #ddd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }
-                    .btn { padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+                    .section-title { margin-top: 30px; font-size: clamp(1rem, 3.5vw, 1.125rem); font-weight: bold; color: #444; border-left: 4px solid #0ea5e9; padding-left: 10px; }
+                    .actions { position: sticky; top: 0; background: #fff; padding: 15px 0; border-bottom: 1px solid #ddd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; z-index: 100; flex-wrap: wrap; gap: 10px; }
+                    .btn { padding: clamp(6px, 2vw, 8px) clamp(12px, 3vw, 16px); border-radius: 4px; border: none; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; text-decoration: none; font-size: clamp(0.8rem, 2.5vw, 0.9rem); }
                     .btn-primary { background-color: #0ea5e9; color: white; }
                     .btn-secondary { background-color: #e2e8f0; color: #333; }
                     .success { color: green; }
                     .danger { color: red; }
                     /* Excel-specific generic styles */
-                    .xl-text { mso-number-format:"\@"; } 
+                    .xl-text { mso-number-format:"\\@"; } 
                     .xl-num { mso-number-format:"0"; }
+                    
+                    /* Mobile Responsive */
+                    @media (max-width: 768px) {
+                        body { padding: 10px; }
+                        .container { padding: 15px; border-radius: 4px; }
+                        h2 { font-size: 1.2rem; }
+                        .section-title { font-size: 1rem; margin-top: 20px; }
+                        table { font-size: 0.75rem; }
+                        th, td { padding: 6px 4px; }
+                        .summary-table { width: 100%; }
+                        .actions { padding: 10px 0; }
+                        .btn { padding: 8px 12px; font-size: 0.8rem; }
+                        /* Stack buttons on mobile */
+                        .actions > div { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+                        .actions > div .btn { width: 100%; justify-content: center; }
+                    }
+                    
+                    @media (max-width: 480px) {
+                        body { padding: 5px; }
+                        .container { padding: 10px; }
+                        h2 { font-size: 1rem; }
+                        table { font-size: 0.7rem; }
+                        th, td { padding: 4px 2px; }
+                        .amount { font-size: 0.7rem; }
+                    }
                 </style>
             </head>
             <body>
@@ -444,7 +567,7 @@ export default function RevenueReport() {
                         <span style="font-weight: bold; color: #666;">Preview Laporan</span>
                         <div>
                             <button onclick="window.close()" class="btn btn-secondary">Tutup Preview</button>
-                            <button onclick="downloadExcel()" class="btn btn-primary" style="margin-left: 10px;">Download Excel (.xls)</button>
+                            <button onclick="downloadExcel()" class="btn btn-primary" style="margin-left: 10px;">Download Laporan (HTML)</button>
                         </div>
                     </div>
 
@@ -454,41 +577,66 @@ export default function RevenueReport() {
 
                         <div class="section-title">RINGKASAN KEUANGAN</div>
                         <table class="summary-table">
-                            <tr><td>Pendapatan Kotor</td><td class="amount">Rp ${data.totalRevenue.toLocaleString('id-ID')}</td></tr>
-                            <tr><td>Total Pengeluaran</td><td class="amount danger">Rp ${data.totalExpenses.toLocaleString('id-ID')}</td></tr>
-                            <tr><td>Laba Bersih</td><td class="amount success" style="font-weight: bold;">Rp ${data.netProfit.toLocaleString('id-ID')}</td></tr>
+                            <tr><td>Penjualan</td><td class="amount">Rp ${data.grossRevenue.toLocaleString('id-ID')}</td></tr>
+                            ${data.voucherDiscount > 0 ? `<tr><td>Potongan Kupon</td><td class="amount" style="color: #f59e0b;">-Rp ${data.voucherDiscount.toLocaleString('id-ID')}</td></tr>` : ''}
+                            <tr style="border-top: 2px solid #0ea5e9;"><td><strong>Total</strong></td><td class="amount success" style="font-weight: bold;">Rp ${data.netRevenue.toLocaleString('id-ID')}</td></tr>
+                            <tr><td>Pengeluaran</td><td class="amount danger">Rp ${data.totalExpenses.toLocaleString('id-ID')}</td></tr>
+                            <tr style="border-top: 2px solid #059669;"><td><strong>Laba Bersih</strong></td><td class="amount ${data.netProfit >= 0 ? 'success' : 'danger'}" style="font-weight: bold;">Rp ${data.netProfit.toLocaleString('id-ID')}</td></tr>
                             <tr><td>Total Servis</td><td class="amount">${data.totalServices} Unit</td></tr>
                             <tr><td>Item Sparepart Terjual</td><td class="amount">${aggregatedSales.reduce((sum, i) => sum + i.qty, 0)} Pcs</td></tr>
                         </table>
 
 
 
-                        <div class="section-title">DETAIL SERVIS</div>
+                        <div class="section-title">DETAIL JASA SERVIS</div>
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Tanggal</th>
-                                    <th>No. Antrian</th>
-                                    <th>Pelanggan</th>
-                                    <th>Plat Nomor</th>
-                                    <th>Total Biaya</th>
+                                    <th>Jenis Jasa</th>
+                                    <th style="text-align: center;">Jumlah</th>
+                                    <th style="text-align: right;">Total Nilai</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${data.services.map(s => {
-            const items = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-            const total = Array.isArray(items) ? items.reduce((sum, item) => sum + ((item.price || 0) * (item.q || 0)), 0) : 0;
-            return `
-                                        <tr>
-                                            <td>${new Date(s.date).toLocaleDateString('id-ID')}</td>
-                                            <td class="xl-text">${s.queueNumber}</td>
-                                            <td>${s.customerName}</td>
-                                            <td>${s.plateNumber}</td>
-                                            <td class="amount">Rp ${total.toLocaleString('id-ID')}</td>
-                                        </tr>
-                                    `;
-        }).join('')}
-                                ${data.services.length === 0 ? '<tr><td colspan="5" style="text-align: center; color: #999;">Tidak ada data servis</td></tr>' : ''}
+                                ${aggregatedServices.map(s => `
+                                    <tr>
+                                        <td>${s.name}</td>
+                                        <td style="text-align: center;">${s.count}</td>
+                                        <td class="amount">Rp ${s.total.toLocaleString('id-ID')}</td>
+                                    </tr>
+                                `).join('')}
+                                ${aggregatedServices.length === 0 ? '<tr><td colspan="3" style="text-align: center; color: #999;">Tidak ada data servis</td></tr>' : ''}
+                                <tr style="background-color: #f1f5f9; font-weight: bold;">
+                                    <td>TOTAL</td>
+                                    <td style="text-align: center;">${aggregatedServices.reduce((sum, s) => sum + s.count, 0)}</td>
+                                    <td class="amount">Rp ${aggregatedServices.reduce((sum, s) => sum + s.total, 0).toLocaleString('id-ID')}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <div class="section-title">RINCIAN POTONGAN KUPON</div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Nama Kupon / Item</th>
+                                    <th style="text-align: center;">Jumlah</th>
+                                    <th style="text-align: right;">Total Potongan</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${aggregatedVouchers.map(v => `
+                                    <tr>
+                                        <td>${v.name}</td>
+                                        <td style="text-align: center;">${v.count}</td>
+                                        <td class="amount">Rp ${v.total.toLocaleString('id-ID')}</td>
+                                    </tr>
+                                `).join('')}
+                                ${aggregatedVouchers.length === 0 ? '<tr><td colspan="3" style="text-align: center; color: #999;">Tidak ada potongan kupon</td></tr>' : ''}
+                                <tr style="background-color: #f1f5f9; font-weight: bold;">
+                                    <td>TOTAL POTONGAN</td>
+                                    <td style="text-align: center;">${aggregatedVouchers.reduce((sum, v) => sum + v.count, 0)}</td>
+                                    <td class="amount">Rp ${aggregatedVouchers.reduce((sum, v) => sum + v.total, 0).toLocaleString('id-ID')}</td>
+                                </tr>
                             </tbody>
                         </table>
 
@@ -496,9 +644,9 @@ export default function RevenueReport() {
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Nama Item</th>
-                                    <th>Total Terjual (Qty)</th>
-                                    <th>Total Nilai</th>
+                                    <th>Nama Sparepart</th>
+                                    <th style="text-align: center;">Terjual</th>
+                                    <th style="text-align: right;">Total Nilai</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -510,6 +658,11 @@ export default function RevenueReport() {
                                     </tr>
                                 `).join('')}
                                 ${aggregatedSales.length === 0 ? '<tr><td colspan="3" style="text-align: center; color: #999;">Tidak ada data penjualan</td></tr>' : ''}
+                                <tr style="background-color: #f1f5f9; font-weight: bold;">
+                                    <td>TOTAL</td>
+                                    <td style="text-align: center;" class="xl-num">${aggregatedSales.reduce((sum, i) => sum + i.qty, 0)}</td>
+                                    <td class="amount">Rp ${aggregatedSales.reduce((sum, i) => sum + i.total, 0).toLocaleString('id-ID')}</td>
+                                </tr>
                             </tbody>
                         </table>
 
@@ -544,26 +697,214 @@ export default function RevenueReport() {
                     function downloadExcel() {
                         const content = document.getElementById('report-content').innerHTML;
                         const template = \`
-                            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                            <!DOCTYPE html>
+                            <html lang="id">
                             <head>
-                                <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Laporan</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
                                 <meta charset="UTF-8">
+                                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                <title>Laporan Pendapatan - ${new Date().toLocaleDateString('id-ID')}</title>
                                 <style>
-                                    table { border-collapse: collapse; width: 100%; }
-                                    td, th { border: 1px solid #000000; padding: 5px; mso-number-format:"\\@"; }
-                                    .amount { mso-number-format:"\\#\\,\\#\\#0"; text-align: right; }
+                                    /* Base styles */
+                                    * {
+                                        margin: 0;
+                                        padding: 0;
+                                        box-sizing: border-box;
+                                    }
+                                    
+                                    body { 
+                                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; 
+                                        padding: 20px;
+                                        background-color: #f4f4f4;
+                                        font-size: 14px;
+                                        line-height: 1.6;
+                                    }
+                                    
+                                    .container {
+                                        max-width: 1000px;
+                                        margin: 0 auto;
+                                        background: white;
+                                        padding: 30px;
+                                        border-radius: 8px;
+                                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                                    }
+                                    
+                                    h2 { 
+                                        color: #333; 
+                                        border-bottom: 3px solid #0ea5e9; 
+                                        padding-bottom: 10px;
+                                        margin-bottom: 15px;
+                                        font-size: 24px;
+                                    }
+                                    
+                                    p { 
+                                        color: #666; 
+                                        margin: 8px 0;
+                                        font-size: 14px;
+                                    }
+                                    
+                                    /* Table styles */
+                                    table { 
+                                        border-collapse: collapse; 
+                                        width: 100%; 
+                                        margin: 15px 0;
+                                        font-size: 13px;
+                                        background: white;
+                                    }
+                                    
+                                    td, th { 
+                                        border: 1px solid #ddd; 
+                                        padding: 10px 8px; 
+                                        vertical-align: top;
+                                    }
+                                    
+                                    th { 
+                                        background-color: #0ea5e9; 
+                                        color: white;
+                                        font-weight: 600;
+                                        text-align: left;
+                                    }
+                                    
+                                    tr:nth-child(even) {
+                                        background-color: #f9fafb;
+                                    }
+                                    
+                                    tr:hover {
+                                        background-color: #f0f9ff;
+                                    }
+                                    
+                                    .amount { 
+                                        text-align: right;
+                                        font-family: 'Courier New', monospace;
+                                        font-weight: 500;
+                                    }
+                                    
+                                    .success { 
+                                        color: #059669; 
+                                        font-weight: bold; 
+                                    }
+                                    
+                                    .danger { 
+                                        color: #dc2626; 
+                                    }
+                                    
+                                    .section-title { 
+                                        margin-top: 25px; 
+                                        margin-bottom: 10px;
+                                        font-size: 18px; 
+                                        font-weight: bold; 
+                                        color: #1f2937; 
+                                        border-left: 4px solid #0ea5e9; 
+                                        padding-left: 12px; 
+                                        background: #f0f9ff;
+                                        padding: 8px 12px;
+                                        border-radius: 4px;
+                                    }
+                                    
+                                    .summary-table {
+                                        width: 100%;
+                                        max-width: 500px;
+                                        margin-bottom: 20px;
+                                    }
+                                    
+                                    .summary-table td:first-child {
+                                        font-weight: 600;
+                                        width: 60%;
+                                        color: #374151;
+                                    }
+                                    
+                                    .summary-table td:last-child {
+                                        font-weight: 600;
+                                    }
+                                    
+                                    /* Print styles */
+                                    @media print {
+                                        body { 
+                                            background: white; 
+                                            padding: 0;
+                                        }
+                                        .container {
+                                            box-shadow: none;
+                                            padding: 20px;
+                                        }
+                                        tr:hover {
+                                            background-color: transparent;
+                                        }
+                                    }
+                                    
+                                    /* Mobile responsive */
+                                    @media (max-width: 768px) {
+                                        body { 
+                                            padding: 10px; 
+                                            font-size: 12px;
+                                        }
+                                        .container {
+                                            padding: 15px;
+                                            border-radius: 4px;
+                                        }
+                                        h2 { 
+                                            font-size: 18px; 
+                                        }
+                                        .section-title { 
+                                            font-size: 14px; 
+                                            margin-top: 15px;
+                                        }
+                                        table { 
+                                            font-size: 11px; 
+                                        }
+                                        td, th { 
+                                            padding: 6px 4px; 
+                                        }
+                                        .summary-table {
+                                            width: 100%;
+                                        }
+                                    }
+                                    
+                                    @media (max-width: 480px) {
+                                        body { 
+                                            padding: 5px; 
+                                            font-size: 11px;
+                                        }
+                                        .container { 
+                                            padding: 10px; 
+                                        }
+                                        h2 { 
+                                            font-size: 16px; 
+                                        }
+                                        table { 
+                                            font-size: 10px; 
+                                        }
+                                        td, th { 
+                                            padding: 4px 2px; 
+                                        }
+                                        .amount { 
+                                            font-size: 10px; 
+                                        }
+                                    }
                                 </style>
                             </head>
                             <body>
-                                \${content}
+                                <div class="container">
+                                    \${content}
+                                    <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 12px;">
+                                        <p>Laporan ini dibuat otomatis oleh sistem</p>
+                                        <p>Dicetak pada: ${new Date().toLocaleString('id-ID', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        })}</p>
+                                    </div>
+                                </div>
                             </body>
                             </html>
                         \`;
                         
-                        const blob = new Blob([template], { type: 'application/vnd.ms-excel' });
+                        const blob = new Blob([template], { type: 'text/html;charset=utf-8' });
                         const link = document.createElement('a');
                         link.href = URL.createObjectURL(blob);
-                        link.download = 'Laporan_Pendapatan_${new Date().toISOString().slice(0, 10)}.xls';
+                        link.download = 'Laporan_Pendapatan_${new Date().toISOString().slice(0, 10)}.html';
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
@@ -652,7 +993,7 @@ export default function RevenueReport() {
 
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button className="btn btn-secondary" onClick={handleExportPreview} style={{ backgroundColor: 'var(--bg-hover)', color: 'var(--text-main)' }}>
-                        <Package size={18} style={{ marginRight: '0.5rem' }} /> Export Excel
+                        <Package size={18} style={{ marginRight: '0.5rem' }} /> Export HTML
                     </button>
                     <button className="btn btn-primary" onClick={handlePrint}>
                         <Printer size={18} style={{ marginRight: '0.5rem' }} /> Cetak Laporan
@@ -667,24 +1008,39 @@ export default function RevenueReport() {
             {/* Summary Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
 
-                {/* 1. GROSS REVENUE */}
+                {/* 1. PENJUALAN (Gross Revenue) */}
                 <div className="card" style={{ background: 'linear-gradient(135deg, var(--primary) 0%, #0284c7 100%)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
-                        <div>
-                            <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', marginBottom: '0.5rem' }}>Pendapatan Kotor</div>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', marginBottom: '0.5rem' }}>Penjualan</div>
                             <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'white' }}>
-                                Rp {data.totalRevenue.toLocaleString('id-ID')}
+                                Rp {data.grossRevenue.toLocaleString('id-ID')}
                             </div>
                         </div>
                         <DollarSign size={32} style={{ color: 'rgba(255,255,255,0.3)' }} />
                     </div>
                 </div>
 
+                {/* 2. POTONGAN KUPON (if any) */}
+                {data.voucherDiscount > 0 && (
+                    <div className="card" style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', marginBottom: '0.5rem' }}>Potongan Kupon</div>
+                                <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'white' }}>
+                                    Rp {data.voucherDiscount.toLocaleString('id-ID')}
+                                </div>
+                            </div>
+                            <TrendingDown size={32} style={{ color: 'rgba(255,255,255,0.3)' }} />
+                        </div>
+                    </div>
+                )}
+
                 {/* 2. EXPENSES */}
                 <div className="card" style={{ background: 'linear-gradient(135deg, var(--danger) 0%, #dc2626 100%)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
                         <div>
-                            <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', marginBottom: '0.5rem' }}>Total Pengeluaran</div>
+                            <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', marginBottom: '0.5rem' }}>Pengeluaran</div>
                             <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'white' }}>
                                 Rp {data.totalExpenses.toLocaleString('id-ID')}
                             </div>
@@ -693,13 +1049,13 @@ export default function RevenueReport() {
                     </div>
                 </div>
 
-                {/* 3. NET PROFIT */}
+                {/* 3. TOTAL (Net Revenue after Voucher Discount) */}
                 <div className="card" style={{ background: 'linear-gradient(135deg, #059669 0%, #047857 100%)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
                         <div>
-                            <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', marginBottom: '0.5rem' }}>Laba Bersih</div>
+                            <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.8)', marginBottom: '0.5rem' }}>Total</div>
                             <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'white' }}>
-                                Rp {data.netProfit.toLocaleString('id-ID')}
+                                Rp {data.netRevenue.toLocaleString('id-ID')}
                             </div>
                         </div>
                         <Wallet size={32} style={{ color: 'rgba(255,255,255,0.3)' }} />
@@ -746,10 +1102,10 @@ export default function RevenueReport() {
 
 
 
-            {/* Services Table */}
+            {/* Services Table - Aggregated by Service Name */}
             <div className="card" style={{ marginBottom: '1.5rem' }}>
                 <h3 style={{ marginBottom: '1rem' }}>Detail Servis</h3>
-                {data.services.length === 0 ? (
+                {aggregatedServices.length === 0 ? (
                     <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                         Belum ada servis yang selesai pada periode ini
                     </p>
@@ -758,46 +1114,32 @@ export default function RevenueReport() {
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr style={{ backgroundColor: 'var(--bg-hover)', borderBottom: '2px solid var(--border)' }}>
-                                    <th style={{ padding: '0.75rem', textAlign: 'left' }}>Tanggal</th>
-                                    <th style={{ padding: '0.75rem', textAlign: 'left' }}>No. Antrian</th>
-                                    <th style={{ padding: '0.75rem', textAlign: 'left' }}>Pelanggan</th>
-                                    <th style={{ padding: '0.75rem', textAlign: 'left' }}>Plat</th>
-                                    <th style={{ padding: '0.75rem', textAlign: 'right' }}>Total</th>
+                                    <th style={{ padding: '0.75rem', textAlign: 'left' }}>Jenis Jasa</th>
+                                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Jumlah</th>
+                                    <th style={{ padding: '0.75rem', textAlign: 'right' }}>Total Nilai</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {data.services.map((service, index) => {
-                                    let items = [];
-                                    let total = 0;
-                                    try {
-                                        items = typeof service.items === 'string' ? JSON.parse(service.items) : service.items;
-                                        if (!Array.isArray(items)) items = [];
-                                        total = items.reduce((sum, item) => {
-                                            // Item gratis tidak dihitung (customer bayar 0)
-                                            if (item.isFreeVoucher) return sum;
-                                            // Item normal: (price - discount) * quantity
-                                            const price = item.price || 0;
-                                            const discount = item.discount || 0;
-                                            const quantity = item.q || 0;
-                                            return sum + ((price - discount) * quantity);
-                                        }, 0);
-                                    } catch (e) {
-                                        console.error('Failed to parse service items:', e);
-                                    }
-                                    return (
-                                        <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
-                                            <td style={{ padding: '0.75rem' }}>
-                                                {new Date(service.date).toLocaleDateString('id-ID')}
-                                            </td>
-                                            <td style={{ padding: '0.75rem' }}>{service.queueNumber}</td>
-                                            <td style={{ padding: '0.75rem' }}>{service.customerName}</td>
-                                            <td style={{ padding: '0.75rem', fontFamily: 'monospace' }}>{service.plateNumber}</td>
-                                            <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>
-                                                Rp {total.toLocaleString('id-ID')}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
+                                {aggregatedServices.map((service, index) => (
+                                    <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
+                                        <td style={{ padding: '0.75rem' }}>{service.name}</td>
+                                        <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '600' }}>
+                                            {service.count}
+                                        </td>
+                                        <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>
+                                            Rp {service.total.toLocaleString('id-ID')}
+                                        </td>
+                                    </tr>
+                                ))}
+                                <tr style={{ backgroundColor: 'var(--bg-hover)', borderTop: '2px solid var(--border)', fontWeight: 'bold' }}>
+                                    <td style={{ padding: '0.75rem' }}>TOTAL</td>
+                                    <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                                        {aggregatedServices.reduce((sum, s) => sum + s.count, 0)}
+                                    </td>
+                                    <td style={{ padding: '0.75rem', textAlign: 'right' }}>
+                                        Rp {aggregatedServices.reduce((sum, s) => sum + s.total, 0).toLocaleString('id-ID')}
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -816,8 +1158,8 @@ export default function RevenueReport() {
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr style={{ backgroundColor: 'var(--bg-hover)', borderBottom: '2px solid var(--border)' }}>
-                                    <th style={{ padding: '0.75rem', textAlign: 'left' }}>Nama Item</th>
-                                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Total Terjual (Qty)</th>
+                                    <th style={{ padding: '0.75rem', textAlign: 'left' }}>Nama Sparepart</th>
+                                    <th style={{ padding: '0.75rem', textAlign: 'center' }}>Terjual</th>
                                     <th style={{ padding: '0.75rem', textAlign: 'right' }}>Total Nilai</th>
                                 </tr>
                             </thead>
@@ -843,6 +1185,8 @@ export default function RevenueReport() {
                     </div>
                 )}
             </div>
+
+            {/* Expenses Table */}
 
             {/* Expenses Table */}
             <div className="card">

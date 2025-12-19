@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { X, Printer } from 'lucide-react';
 import { api } from '../../services/api';
 import { formatInvoice } from '../../utils/printHelpers';
+import { showPrintStatus } from '../../utils/printUtils';
 
 export default function ServiceInvoice({ service, onClose }) {
     const [mechanic, setMechanic] = useState(null);
@@ -64,15 +65,93 @@ export default function ServiceInvoice({ service, onClose }) {
 
         if (confirm(`Cetak Invoice ke Printer Server (${targetPrinter})?`)) {
             try {
+                // Show loading notification
+                showPrintStatus('info', 'Mengirim invoice ke server...');
+
                 const textContent = formatInvoice(service, currentSettings, mechanic ? mechanic.name : '-');
-                await api.printJob(textContent);
-                alert('✅ Invoice Terkirim ke Server!');
+                const result = await api.printJob(textContent);
+
+                // Check if server responded with error
+                if (result && result.error) {
+                    throw new Error(result.error);
+                }
+
+                // Success notification
+                showPrintStatus('success', `Invoice berhasil dikirim ke printer ${targetPrinter}!`);
                 return;
+
             } catch (e) {
-                alert('Note: Gagal ke Server (' + e.message + '), menggunakan Browser Print.');
+                console.error('Print error:', e);
+
+                // Determine error type
+                let errorMessage = e.message || 'Unknown error';
+                let errorTitle = 'Gagal Mencetak Invoice';
+                let suggestions = [];
+
+                // Check for specific error types
+                if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('Network')) {
+                    errorTitle = 'Server Tidak Terhubung';
+                    suggestions = [
+                        'Pastikan server backend berjalan',
+                        'Periksa koneksi jaringan',
+                        'Restart server jika diperlukan'
+                    ];
+                } else if (errorMessage.includes('printer') || errorMessage.includes('PRINTER')) {
+                    errorTitle = 'Printer Tidak Tersedia';
+                    suggestions = [
+                        'Pastikan printer dalam keadaan menyala (power ON)',
+                        'Periksa koneksi kabel printer ke server',
+                        'Pastikan printer tidak sedang error atau paper jam',
+                        'Cek apakah printer terdeteksi di sistem',
+                        'Restart printer dan coba lagi'
+                    ];
+                } else if (errorMessage.includes('timeout') || errorMessage.includes('TIMEOUT')) {
+                    errorTitle = 'Printer Tidak Merespon';
+                    suggestions = [
+                        'Printer mungkin sedang offline atau mati',
+                        'Periksa status printer di komputer server',
+                        'Pastikan printer tidak sedang digunakan aplikasi lain',
+                        'Coba restart printer'
+                    ];
+                }
+
+                // Build detailed error message
+                const detailedMessage = `
+❌ ${errorTitle}
+
+Error: ${errorMessage}
+
+Kemungkinan Penyebab:
+${suggestions.map(s => `• ${s}`).join('\n')}
+
+Solusi:
+1. Periksa status printer di komputer server
+2. Pastikan printer menyala dan terhubung
+3. Restart printer jika diperlukan
+4. Hubungi IT support jika masalah berlanjut
+
+Gunakan Browser Print sebagai alternatif?
+                `.trim();
+
+                // Show error notification
+                showPrintStatus('error', errorTitle + ': ' + errorMessage);
+
+                // Ask if want to use browser print as fallback
+                if (confirm(detailedMessage)) {
+                    // Fallback to browser print
+                    const printContent = invoiceRef.current.innerHTML;
+                    const originalContents = document.body.innerHTML;
+
+                    document.body.innerHTML = printContent;
+                    window.print();
+                    document.body.innerHTML = originalContents;
+                    window.location.reload();
+                }
+                return;
             }
         }
 
+        // Direct browser print (if user chose "No" to server print)
         const printContent = invoiceRef.current.innerHTML;
         const originalContents = document.body.innerHTML;
 
@@ -80,6 +159,24 @@ export default function ServiceInvoice({ service, onClose }) {
         window.print();
         document.body.innerHTML = originalContents;
         window.location.reload(); // Simple reload to restore state after print hack
+    };
+
+    // Function for local browser print (direct to client printer)
+    const handlePrintLocal = () => {
+        showPrintStatus('info', 'Membuka browser print dialog...');
+
+        // Direct browser print
+        const printContent = invoiceRef.current.innerHTML;
+        const originalContents = document.body.innerHTML;
+
+        document.body.innerHTML = printContent;
+
+        // Trigger print
+        setTimeout(() => {
+            window.print();
+            document.body.innerHTML = originalContents;
+            window.location.reload();
+        }, 100);
     };
 
     const formatDate = (dateString) => {
@@ -103,9 +200,31 @@ export default function ServiceInvoice({ service, onClose }) {
                 {/* Header Actions */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', padding: '1rem', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg-dark)' }}>
                     <h3 style={{ margin: 0, fontSize: '1.2rem' }}>Invoice Preview</h3>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                        <button className="btn btn-primary" onClick={handlePrint}>
-                            <Printer size={18} /> <span className="hide-mobile">Cetak (LX-310)</span>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                            className="btn btn-outline"
+                            onClick={handlePrintLocal}
+                            style={{
+                                borderColor: '#10b981',
+                                color: '#10b981',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                            }}
+                            title="Print ke printer lokal/network"
+                        >
+                            <Printer size={18} /> <span className="hide-mobile">Print Lokal</span>
+                        </button>
+                        <button
+                            className="btn btn-primary"
+                            onClick={handlePrint}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                            }}
+                        >
+                            <Printer size={18} /> <span className="hide-mobile">Cetak ke Server</span>
                         </button>
                         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                             <X size={24} />

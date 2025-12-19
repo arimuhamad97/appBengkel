@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code - Aplikasi Bengkel Motor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .qr-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 30px 0;
+        }
+
+        #qrcode {
+            display: inline-block;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            margin: 20px 0;
+        }
+
+        .url-display {
+            background: #2d3748;
+            color: #48bb78;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 1.1em;
+            margin: 20px 0;
+            word-break: break-all;
+        }
+
+        .config-section {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .config-section h3 {
+            color: #856404;
+            margin-bottom: 15px;
+        }
+
+        .input-group {
+            margin: 15px 0;
+        }
+
+        .input-group label {
+            display: block;
+            color: #333;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 1em;
+            font-family: 'Courier New', monospace;
+        }
+
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 30px;
+            border-radius: 50px;
+            text-decoration: none;
+            font-size: 1.1em;
+            font-weight: bold;
+            margin: 10px 5px;
+            transition: transform 0.3s, box-shadow 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            box-shadow: 0 4px 15px rgba(72, 187, 120, 0.4);
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 6px 20px rgba(72, 187, 120, 0.6);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #f56565 0%, #c53030 100%);
+            box-shadow: 0 4px 15px rgba(245, 101, 101, 0.4);
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 6px 20px rgba(245, 101, 101, 0.6);
+        }
+
+        .instructions {
+            background: #e6f7ff;
+            border-left: 4px solid #1890ff;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+            border-radius: 8px;
+        }
+
+        .instructions h3 {
+            color: #1890ff;
+            margin-bottom: 10px;
+        }
+
+        .instructions ol {
+            margin-left: 20px;
+            color: #555;
+            line-height: 1.8;
+        }
+
+        .instructions li {
+            margin-bottom: 8px;
+        }
+
+        .print-section {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e2e8f0;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+
+            .container {
+                box-shadow: none;
+                padding: 20px;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+
+            .config-section {
+                display: none;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 1.5em;
+            }
+        }
+
+        .size-selector {
+            margin: 20px 0;
+        }
+
+        .size-selector label {
+            margin: 0 10px;
+            color: #333;
+        }
+
+        .size-selector input[type="radio"] {
+            margin-right: 5px;
+        }
+
+        .info-box {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            text-align: left;
+        }
+
+        .info-box h4 {
+            color: #0c5460;
+            margin-bottom: 10px;
+        }
+
+        .info-box p {
+            color: #0c5460;
+            line-height: 1.6;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>📱 QR Code Akses Aplikasi</h1>
+        <p class="subtitle">Scan untuk akses cepat dari smartphone/tablet</p>
+
+        <div class="config-section no-print">
+            <h3>⚙️ Konfigurasi URL</h3>
+            <div class="input-group">
+                <label for="serverIP">IP Server:</label>
+                <input type="text" id="serverIP" value="192.168.1.100" placeholder="192.168.1.100">
+            </div>
+            <div class="input-group">
+                <label for="serverPort">Port:</label>
+                <input type="text" id="serverPort" value="5173" placeholder="5173">
+            </div>
+            <button class="btn" onclick="generateQR()">🔄 Generate QR Code</button>
+            <button class="btn btn-secondary" onclick="autoDetectIP()">🔍 Auto Detect IP</button>
+        </div>
+
+        <div class="qr-section">
+            <h2 style="color: #333; margin-bottom: 20px;">📷 Scan QR Code Ini</h2>
+
+            <div class="size-selector no-print">
+                <label>Ukuran QR Code:</label>
+                <label><input type="radio" name="size" value="128" onchange="generateQR()"> Kecil</label>
+                <label><input type="radio" name="size" value="200" onchange="generateQR()" checked> Sedang</label>
+                <label><input type="radio" name="size" value="300" onchange="generateQR()"> Besar</label>
+            </div>
+
+            <div id="qrcode"></div>
+
+            <div class="url-display" id="currentURL">http://192.168.1.100:5173</div>
+        </div>
+
+        <div class="instructions no-print">
+            <h3>📖 Cara Menggunakan QR Code</h3>
+            <ol>
+                <li><strong>Buka aplikasi kamera</strong> di smartphone/tablet Anda</li>
+                <li><strong>Arahkan kamera</strong> ke QR Code di atas</li>
+                <li><strong>Tap notifikasi</strong> yang muncul untuk membuka aplikasi</li>
+                <li><strong>Bookmark halaman</strong> di browser mobile untuk akses berikutnya</li>
+            </ol>
+        </div>
+
+        <div class="info-box no-print">
+            <h4>💡 Tips Penggunaan</h4>
+            <p><strong>Untuk Cetak:</strong> Klik tombol "Cetak QR Code" untuk mencetak dan menempelkan di area kerja
+            </p>
+            <p><strong>Untuk Share:</strong> Klik "Download QR Code" untuk menyimpan gambar QR dan share via
+                WhatsApp/Email</p>
+            <p><strong>Untuk Display:</strong> Buka halaman ini di komputer kasir agar staff bisa scan langsung dari
+                layar</p>
+        </div>
+
+        <div class="print-section">
+            <button class="btn no-print" onclick="window.print()">🖨️ Cetak QR Code</button>
+            <button class="btn btn-secondary no-print" onclick="downloadQR()">💾 Download QR Code</button>
+            <button class="btn btn-danger no-print" onclick="openApp()">🚀 Buka Aplikasi</button>
+        </div>
+
+        <div class="instructions" style="margin-top: 30px;">
+            <h3>📋 Keuntungan Akses via QR Code</h3>
+            <ol>
+                <li>✅ <strong>Cepat:</strong> Tidak perlu ketik URL panjang</li>
+                <li>✅ <strong>Akurat:</strong> Tidak ada kesalahan ketik</li>
+                <li>✅ <strong>Mobile-Friendly:</strong> Sempurna untuk smartphone/tablet</li>
+                <li>✅ <strong>Mudah Dibagikan:</strong> Cetak dan tempel di area kerja</li>
+                <li>✅ <strong>Profesional:</strong> Terlihat modern dan terorganisir</li>
+            </ol>
+        </div>
+
+        <div class="info-box">
+            <h4>📍 Lokasi Ideal untuk Menempel QR Code</h4>
+            <p>• <strong>Area Kasir:</strong> Untuk customer yang ingin cek status servis</p>
+            <p>• <strong>Ruang Mekanik:</strong> Untuk mekanik akses dari tablet/smartphone</p>
+            <p>• <strong>Ruang Tunggu:</strong> Untuk customer self-service</p>
+            <p>• <strong>Pintu Masuk:</strong> Untuk informasi umum</p>
+        </div>
+    </div>
+
+    <!-- QRCode.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <script>
+        // Konfigurasi default
+        let qrCodeInstance = null;
+
+        // Generate QR Code
+        function generateQR() {
+            const ip = document.getElementById('serverIP').value || '192.168.1.100';
+            const port = document.getElementById('serverPort').value || '5173';
+            const url = `http://${ip}:${port}`;
+
+            // Update URL display
+            document.getElementById('currentURL').textContent = url;
+
+            // Clear previous QR code
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = '';
+
+            // Get selected size
+            const selectedSize = document.querySelector('input[name="size"]:checked').value;
+
+            // Generate new QR code
+            qrCodeInstance = new QRCode(qrContainer, {
+                text: url,
+                width: parseInt(selectedSize),
+                height: parseInt(selectedSize),
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+        }
+
+        // Auto detect IP
+        async function autoDetectIP() {
+            try {
+                // Menggunakan WebRTC untuk detect local IP
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel('');
+                pc.createOffer().then(offer => pc.setLocalDescription(offer));
+
+                pc.onicecandidate = (ice) => {
+                    if (!ice || !ice.candidate || !ice.candidate.candidate) return;
+                    const ipRegex = /([0-9]{1,3}\.){3}[0-9]{1,3}/;
+                    const ipMatch = ipRegex.exec(ice.candidate.candidate);
+                    if (ipMatch) {
+                        const detectedIP = ipMatch[0];
+                        document.getElementById('serverIP').value = detectedIP;
+                        pc.onicecandidate = () => { };
+                        pc.close();
+                        alert(`IP terdeteksi: ${detectedIP}\n\nKlik "Generate QR Code" untuk update.`);
+                    }
+                };
+            } catch (error) {
+                alert('Auto detect IP tidak berhasil.\nSilakan masukkan IP manual.');
+            }
+        }
+
+        // Download QR Code as image
+        function downloadQR() {
+            const canvas = document.querySelector('#qrcode canvas');
+            if (!canvas) {
+                alert('Generate QR Code terlebih dahulu!');
+                return;
+            }
+
+            const url = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = 'qr-code-bengkel-motor.png';
+            link.href = url;
+            link.click();
+        }
+
+        // Open application
+        function openApp() {
+            const url = document.getElementById('currentURL').textContent;
+            window.open(url, '_blank');
+        }
+
+        // Generate QR code on page load
+        window.onload = function () {
+            generateQR();
+        };
+
+        // Save configuration to localStorage
+        function saveConfig() {
+            const ip = document.getElementById('serverIP').value;
+            const port = document.getElementById('serverPort').value;
+            localStorage.setItem('bengkel_server_ip', ip);
+            localStorage.setItem('bengkel_server_port', port);
+        }
+
+        // Load configuration from localStorage
+        function loadConfig() {
+            const savedIP = localStorage.getItem('bengkel_server_ip');
+            const savedPort = localStorage.getItem('bengkel_server_port');
+
+            if (savedIP) document.getElementById('serverIP').value = savedIP;
+            if (savedPort) document.getElementById('serverPort').value = savedPort;
+        }
+
+        // Auto-save on input change
+        document.getElementById('serverIP').addEventListener('change', saveConfig);
+        document.getElementById('serverPort').addEventListener('change', saveConfig);
+
+        // Load saved config on page load
+        loadConfig();
+    </script>
+</body>
+
+</html>
